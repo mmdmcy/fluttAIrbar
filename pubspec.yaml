@@ -1,0 +1,36 @@
+name: fluttairbar
+description: Cross-platform system-tray usage meters for Codex/ChatGPT and Cursor. Reuses local auth — no in-app login.
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.12.2
+
+# Dependencies specify other packages that your package needs in order to work.
+# To automatically upgrade your package dependencies to the latest versions
+# consider running `flutter pub upgrade --major-versions`. Alternatively,
+# dependencies can be manually updated by changing the version numbers below to
+# the latest version available on pub.dev. To see which dependencies have newer
+# versions available, run `flutter pub outdated`.
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+  http: ^1.6.0
+  path: ^1.9.1
+  path_provider: ^2.1.6
+  tray_manager: ^0.5.3
+  window_manager: ^0.5.2
+  sqlite3: ^3.5.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/tray_icon.png
+    - assets/app_icon.png
