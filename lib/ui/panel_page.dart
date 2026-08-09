@@ -6,11 +6,7 @@ import '../providers/usage_store.dart';
 import 'widgets/usage_meter.dart';
 
 class PanelPage extends StatelessWidget {
-  const PanelPage({
-    super.key,
-    required this.store,
-    required this.themeStore,
-  });
+  const PanelPage({super.key, required this.store, required this.themeStore});
 
   final UsageStore store;
   final ThemeStore themeStore;
@@ -48,11 +44,12 @@ class PanelPage extends StatelessWidget {
                 const SizedBox(height: 8),
                 _CodexBlock(
                   usage: snap.codex,
+                  loading: store.loading,
                   redeeming: store.redeeming,
                   onRedeem: (credit) => _confirmRedeem(context, credit),
                 ),
                 const SizedBox(height: 10),
-                _CursorBlock(usage: snap.cursor),
+                _CursorBlock(usage: snap.cursor, loading: store.loading),
                 const Spacer(),
                 Text(
                   'Local auth only · resets need double confirm',
@@ -73,8 +70,8 @@ class PanelPage extends StatelessWidget {
     final expiry = credit.expiresAt == null
         ? 'unknown expiry'
         : '${credit.expiresAt!.year}-'
-            '${credit.expiresAt!.month.toString().padLeft(2, '0')}-'
-            '${credit.expiresAt!.day.toString().padLeft(2, '0')}';
+              '${credit.expiresAt!.month.toString().padLeft(2, '0')}-'
+              '${credit.expiresAt!.day.toString().padLeft(2, '0')}';
 
     final first = await showDialog<bool>(
       context: context,
@@ -219,11 +216,13 @@ class _Header extends StatelessWidget {
 class _CodexBlock extends StatelessWidget {
   const _CodexBlock({
     required this.usage,
+    required this.loading,
     required this.redeeming,
     required this.onRedeem,
   });
 
   final CodexUsage? usage;
+  final bool loading;
   final bool redeeming;
   final ValueChanged<ResetCredit> onRedeem;
 
@@ -235,10 +234,15 @@ class _CodexBlock extends StatelessWidget {
       children: [
         Text(
           'Codex',
-          style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+          style: theme.textTheme.titleSmall?.copyWith(
+            fontWeight: FontWeight.w700,
+          ),
         ),
         if (usage == null)
-          Text('Loading…', style: theme.textTheme.bodySmall)
+          Text(
+            loading ? 'Loading…' : 'Press Refresh to load',
+            style: theme.textTheme.bodySmall,
+          )
         else if (usage!.hasError)
           _ErrorLine(message: usage!.error!)
         else ...[
@@ -271,11 +275,7 @@ class _CodexBlock extends StatelessWidget {
               ),
             ),
           const SizedBox(height: 6),
-          _ResetsRow(
-            usage: usage!,
-            redeeming: redeeming,
-            onRedeem: onRedeem,
-          ),
+          _ResetsRow(usage: usage!, redeeming: redeeming, onRedeem: onRedeem),
         ],
       ],
     );
@@ -360,16 +360,27 @@ class _ResetsRow extends StatelessWidget {
 
   String _fmt(DateTime d) {
     const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
     ];
     return '${months[d.month - 1]} ${d.day}';
   }
 }
 
 class _CursorBlock extends StatelessWidget {
-  const _CursorBlock({required this.usage});
+  const _CursorBlock({required this.usage, required this.loading});
   final CursorUsage? usage;
+  final bool loading;
 
   @override
   Widget build(BuildContext context) {
@@ -379,10 +390,15 @@ class _CursorBlock extends StatelessWidget {
       children: [
         Text(
           'Cursor',
-          style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+          style: theme.textTheme.titleSmall?.copyWith(
+            fontWeight: FontWeight.w700,
+          ),
         ),
         if (usage == null)
-          Text('Loading…', style: theme.textTheme.bodySmall)
+          Text(
+            loading ? 'Loading…' : 'Press Refresh to load',
+            style: theme.textTheme.bodySmall,
+          )
         else if (usage!.hasError)
           _ErrorLine(message: usage!.error!)
         else ...[

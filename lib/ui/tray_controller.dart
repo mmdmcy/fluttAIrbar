@@ -13,11 +13,10 @@ class TrayController with TrayListener, WindowListener {
   TrayController(this.store);
 
   final UsageStore store;
-  Timer? _poll;
   bool _initialized = false;
   bool _trayReady = false;
 
-  Future<void> init() async {
+  Future<void> init({bool startHidden = false}) async {
     if (_initialized) return;
     _initialized = true;
 
@@ -29,10 +28,14 @@ class TrayController with TrayListener, WindowListener {
       center: true,
       title: 'fluttAIrbar',
       titleBarStyle: TitleBarStyle.normal,
-      skipTaskbar: false,
+      skipTaskbar: true,
     );
     await windowManager.waitUntilReadyToShow(options, () async {
       await windowManager.setPreventClose(true);
+      if (startHidden) {
+        await windowManager.hide();
+        return;
+      }
       await windowManager.show();
       await windowManager.focus();
     });
@@ -49,14 +52,11 @@ class TrayController with TrayListener, WindowListener {
       await _rebuildMenu();
       _trayReady = true;
     } catch (e) {
-      // App still works as a normal window without tray.
       stderr.writeln('fluttAIrbar: tray unavailable: $e');
+      await windowManager.setSkipTaskbar(false);
+      await windowManager.show();
+      await windowManager.focus();
     }
-
-    await store.refresh();
-    _poll = Timer.periodic(const Duration(minutes: 3), (_) {
-      store.refresh();
-    });
   }
 
   Future<void> _safeTray(Future<void> Function() action) async {
@@ -98,17 +98,17 @@ class TrayController with TrayListener, WindowListener {
           items: [
             MenuItem(key: 'show', label: 'Open fluttAIrbar'),
             MenuItem.separator(),
-          MenuItem(
-            key: 'codex',
-            label: () {
-              final w = snap.codex?.secondary ?? snap.codex?.primary;
-              if (w == null) return 'Codex · —';
-              final label = w.label ?? 'Codex';
-              final left = (100 - w.usedPercent).clamp(0, 100).round();
-              return '$label · $left% left';
-            }(),
-            disabled: true,
-          ),
+            MenuItem(
+              key: 'codex',
+              label: () {
+                final w = snap.codex?.secondary ?? snap.codex?.primary;
+                if (w == null) return 'Codex · —';
+                final label = w.label ?? 'Codex';
+                final left = (100 - w.usedPercent).clamp(0, 100).round();
+                return '$label · $left% left';
+              }(),
+              disabled: true,
+            ),
             MenuItem(
               key: 'resets',
               label: 'Resets · $resets available',
@@ -163,11 +163,14 @@ class TrayController with TrayListener, WindowListener {
 
   @override
   void onWindowClose() {
-    unawaited(hidePanel());
+    if (_trayReady) {
+      unawaited(hidePanel());
+    } else {
+      exit(0);
+    }
   }
 
   Future<void> _quit() async {
-    _poll?.cancel();
     store.removeListener(_onStoreChanged);
     if (_trayReady) {
       trayManager.removeListener(this);
@@ -181,7 +184,6 @@ class TrayController with TrayListener, WindowListener {
   }
 
   void dispose() {
-    _poll?.cancel();
     store.removeListener(_onStoreChanged);
     if (_trayReady) trayManager.removeListener(this);
     windowManager.removeListener(this);
