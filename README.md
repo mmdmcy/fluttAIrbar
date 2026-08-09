@@ -10,8 +10,9 @@ Inspired by [steipete/CodexBar](https://github.com/steipete/CodexBar) (macOS). f
 - Banked **limit reset credits** with double-confirm redeem
 - Cursor plan usage % (when local Cursor auth is available)
 - System tray icon + tooltip; click to open the panel
+- Supports quiet `--background` launch for desktop login integration
 - Dark mode by default (toggle in header)
-- Refresh on demand and every ~3 minutes
+- Refresh only on demand from the panel or tray menu
 
 ## How auth works (no login here)
 
@@ -45,16 +46,36 @@ Needs [Flutter](https://docs.flutter.dev/get-started/install) with desktop enabl
 
 ```bash
 # Linux deps (Debian/Ubuntu/Mint)
-sudo apt install libgtk-3-dev libayatana-appindicator3-dev libsqlite3-dev
+sudo apt install libgtk-3-dev libayatana-appindicator3-dev libsqlite3-dev rsync
 
 git clone https://github.com/mmdmcy/fluttAIrbar.git
 cd fluttAIrbar
 flutter pub get
 flutter run -d linux
-# or: flutter build linux
+# or: flutter build linux --release
 ```
 
-Headless smoke check (Codex only):
+Install the complete release bundle in a stable location before configuring it
+as a login application. Development builds must not be registered for startup.
+
+```bash
+flutter build linux --release
+mkdir -p "$HOME/.local/opt/fluttairbar" "$HOME/.local/bin"
+# Replace x64 with the generated architecture directory when needed.
+rsync -a --delete build/linux/x64/release/bundle/ \
+  "$HOME/.local/opt/fluttairbar/"
+ln -sfn "$HOME/.local/opt/fluttairbar/fluttairbar" \
+  "$HOME/.local/bin/fluttairbar"
+```
+
+Configure the desktop's startup manager to run `fluttairbar --background`, or
+declare `autostart fluttairbar.desktop` in a LinuxMice endpoint profile. The app
+then starts quietly in the tray; click the tray icon to open the small usage
+panel. It does not need administrator permissions and never changes startup
+configuration itself.
+
+Headless smoke check (Codex only; run only in a private terminal because it
+prints account and usage details):
 
 ```bash
 dart run tool/smoke_codex.dart

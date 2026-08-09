@@ -6,14 +6,16 @@ import 'providers/theme_store.dart';
 import 'providers/usage_store.dart';
 import 'ui/tray_controller.dart';
 
-Future<void> main() async {
+const backgroundArgument = '--background';
+
+Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
   await windowManager.ensureInitialized();
 
   final store = UsageStore();
   final themeStore = ThemeStore();
   final tray = TrayController(store);
-  await tray.init();
+  await tray.init(startHidden: args.contains(backgroundArgument));
 
   runApp(FluttAIrbarApp(store: store, themeStore: themeStore));
 }
