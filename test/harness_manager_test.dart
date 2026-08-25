@@ -176,6 +176,50 @@ void main() {
     manager.dispose();
   });
 
+  test('global npm updates target the verified release version', () async {
+    final runner = _FakeCommandRunner();
+    const definition = HarnessDefinition(
+      id: 'test',
+      displayName: 'Test',
+      executable: 'test',
+      versionArgs: ['--version'],
+      updateArgs: ['update'],
+      updateSource: HarnessUpdateSource.npm,
+      npmPackage: 'test-package',
+      updateWithNpmGlobal: true,
+      configs: [],
+    );
+    final manager = HarnessManager(
+      runner: runner,
+      definitions: const [definition],
+      now: () => DateTime.utc(2026, 8, 22),
+    );
+    runner.responses['which test'] = const CommandResult(
+      exitCode: 0,
+      stdout: '/tmp/test\n',
+      stderr: '',
+    );
+    runner.responses['/tmp/test --version'] = const CommandResult(
+      exitCode: 0,
+      stdout: '1.0.0\n',
+      stderr: '',
+    );
+    runner.responses['npm view test-package version time --json'] =
+        const CommandResult(
+          exitCode: 0,
+          stdout:
+              '{"version":"2.0.0","time":{"2.0.0":"2026-07-01T00:00:00.000Z"}}',
+          stderr: '',
+        );
+
+    final statuses = await manager.discover();
+    final report = await manager.updateAll(statuses);
+
+    expect(report.results.single.outcome, HarnessUpdateOutcome.updated);
+    expect(runner.calls, contains('npm install --global test-package@2.0.0'));
+    manager.dispose();
+  });
+
   test('fx catalog points at its native settings and credential files', () {
     final definition = HarnessCatalog.definitions.singleWhere(
       (definition) => definition.id == 'fx',

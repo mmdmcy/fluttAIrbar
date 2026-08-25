@@ -54,6 +54,7 @@ class HarnessCatalog {
       ],
       description:
           'Codex uses config.toml for model, sandbox, and MCP settings.',
+      updateWithNpmGlobal: true,
     ),
     HarnessDefinition(
       id: 'grok',
