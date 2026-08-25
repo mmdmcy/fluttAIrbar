@@ -28,6 +28,7 @@ class HarnessDefinition {
     this.description,
     this.supportsUpdate = true,
     this.updatePackageInPlace = false,
+    this.updateWithNpmGlobal = false,
   });
 
   final String id;
@@ -44,6 +45,7 @@ class HarnessDefinition {
   final String? description;
   final bool supportsUpdate;
   final bool updatePackageInPlace;
+  final bool updateWithNpmGlobal;
 
   bool get requiresReleaseAge =>
       updateSource == HarnessUpdateSource.npm ||

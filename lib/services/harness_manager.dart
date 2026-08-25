@@ -312,6 +312,16 @@ class HarnessManager {
     final definition = status.definition;
     final packageName = definition.npmPackage;
     final targetVersion = status.release?.latestVersion;
+    if (definition.updateWithNpmGlobal &&
+        definition.updateSource == HarnessUpdateSource.npm &&
+        packageName != null &&
+        targetVersion != null) {
+      return _runner.run('npm', [
+        'install',
+        '--global',
+        '$packageName@$targetVersion',
+      ], timeout: const Duration(minutes: 5));
+    }
     if (definition.updatePackageInPlace &&
         definition.updateSource == HarnessUpdateSource.npm &&
         packageName != null &&
