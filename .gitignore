@@ -43,3 +43,8 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Ori generated runtime state and materialized agent views
+.ori/
+.agents/skills/
+.claude/skills/

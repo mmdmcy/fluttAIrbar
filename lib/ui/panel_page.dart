@@ -1,23 +1,43 @@
 import 'package:flutter/material.dart';
 
 import '../models/usage_snapshot.dart';
+import '../providers/harness_store.dart';
 import '../providers/theme_store.dart';
 import '../providers/usage_store.dart';
+import 'harness_panel.dart';
 import 'widgets/usage_meter.dart';
 
-class PanelPage extends StatelessWidget {
-  const PanelPage({super.key, required this.store, required this.themeStore});
+class PanelPage extends StatefulWidget {
+  const PanelPage({
+    super.key,
+    required this.store,
+    required this.themeStore,
+    required this.harnessStore,
+  });
 
   final UsageStore store;
   final ThemeStore themeStore;
+  final HarnessStore harnessStore;
+
+  @override
+  State<PanelPage> createState() => _PanelPageState();
+}
+
+class _PanelPageState extends State<PanelPage> {
+  bool _showHarnesses = false;
 
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: Listenable.merge([store, themeStore]),
+      animation: Listenable.merge([
+        widget.store,
+        widget.themeStore,
+        widget.harnessStore,
+      ]),
       builder: (context, _) {
-        final snap = store.snapshot;
+        final snap = widget.store.snapshot;
         final theme = Theme.of(context);
+        final showingHarnesses = _showHarnesses;
         return Scaffold(
           backgroundColor: theme.colorScheme.surface,
           body: Padding(
@@ -26,43 +46,71 @@ class PanelPage extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 _Header(
-                  loading: store.loading || store.redeeming,
-                  refreshedAt: snap.refreshedAt,
-                  isDark: themeStore.isDark,
-                  onRefresh: store.refresh,
-                  onToggleTheme: themeStore.toggle,
+                  refreshing: showingHarnesses
+                      ? widget.harnessStore.loading
+                      : widget.store.loading,
+                  refreshDisabled: showingHarnesses
+                      ? widget.harnessStore.loading ||
+                            widget.harnessStore.updating
+                      : widget.store.loading || widget.store.redeeming,
+                  refreshedAt: showingHarnesses
+                      ? widget.harnessStore.checkedAt
+                      : snap.refreshedAt,
+                  isDark: widget.themeStore.isDark,
+                  showingHarnesses: showingHarnesses,
+                  onRefresh: showingHarnesses
+                      ? widget.harnessStore.refresh
+                      : widget.store.refresh,
+                  onToggleTheme: widget.themeStore.toggle,
+                  onToggleHarnesses: _toggleHarnesses,
                 ),
-                if (store.statusMessage != null) ...[
+                if ((showingHarnesses
+                        ? widget.harnessStore.statusMessage
+                        : widget.store.statusMessage) !=
+                    null) ...[
                   const SizedBox(height: 6),
                   Text(
-                    store.statusMessage!,
+                    (showingHarnesses
+                        ? widget.harnessStore.statusMessage
+                        : widget.store.statusMessage)!,
                     style: theme.textTheme.labelSmall?.copyWith(
                       color: theme.colorScheme.primary,
                     ),
                   ),
                 ],
                 const SizedBox(height: 8),
-                _CodexBlock(
-                  usage: snap.codex,
-                  loading: store.loading,
-                  redeeming: store.redeeming,
-                  onRedeem: (credit) => _confirmRedeem(context, credit),
-                ),
-                const SizedBox(height: 10),
-                _CursorBlock(usage: snap.cursor, loading: store.loading),
-                const Spacer(),
-                Text(
-                  'Local auth only · resets need double confirm',
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
+                if (showingHarnesses)
+                  Expanded(child: HarnessPanel(store: widget.harnessStore))
+                else ...[
+                  _CodexBlock(
+                    usage: snap.codex,
+                    loading: widget.store.loading,
+                    redeeming: widget.store.redeeming,
+                    onRedeem: (credit) => _confirmRedeem(context, credit),
                   ),
-                ),
+                  const SizedBox(height: 10),
+                  _CursorBlock(
+                    usage: snap.cursor,
+                    loading: widget.store.loading,
+                  ),
+                  const Spacer(),
+                  Text(
+                    'Local auth only · resets need double confirm',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
         );
       },
     );
+  }
+
+  void _toggleHarnesses() {
+    setState(() => _showHarnesses = !_showHarnesses);
   }
 
   Future<void> _confirmRedeem(BuildContext context, ResetCredit credit) async {
@@ -124,7 +172,7 @@ class PanelPage extends StatelessWidget {
     );
     if (second != true || !context.mounted) return;
 
-    final result = await store.redeemResetCredit(credit.id);
+    final result = await widget.store.redeemResetCredit(credit.id);
     if (!context.mounted) return;
     final messenger = ScaffoldMessenger.of(context);
     messenger.showSnackBar(
@@ -141,18 +189,24 @@ class PanelPage extends StatelessWidget {
 
 class _Header extends StatelessWidget {
   const _Header({
-    required this.loading,
+    required this.refreshing,
+    required this.refreshDisabled,
     required this.refreshedAt,
     required this.isDark,
+    required this.showingHarnesses,
     required this.onRefresh,
     required this.onToggleTheme,
+    required this.onToggleHarnesses,
   });
 
-  final bool loading;
+  final bool refreshing;
+  final bool refreshDisabled;
   final DateTime? refreshedAt;
   final bool isDark;
+  final bool showingHarnesses;
   final VoidCallback onRefresh;
   final VoidCallback onToggleTheme;
+  final VoidCallback onToggleHarnesses;
 
   @override
   Widget build(BuildContext context) {
@@ -187,6 +241,20 @@ class _Header extends StatelessWidget {
             ],
           ),
         ),
+        FilledButton.tonalIcon(
+          onPressed: onToggleHarnesses,
+          icon: Icon(
+            showingHarnesses
+                ? Icons.data_usage_outlined
+                : Icons.developer_mode_outlined,
+            size: 17,
+          ),
+          label: Text(showingHarnesses ? 'Usage' : 'Harnesses'),
+          style: FilledButton.styleFrom(
+            visualDensity: VisualDensity.compact,
+            padding: const EdgeInsets.symmetric(horizontal: 9),
+          ),
+        ),
         IconButton(
           visualDensity: VisualDensity.compact,
           tooltip: isDark ? 'Light mode' : 'Dark mode',
@@ -198,9 +266,11 @@ class _Header extends StatelessWidget {
         ),
         IconButton(
           visualDensity: VisualDensity.compact,
-          tooltip: 'Refresh',
-          onPressed: loading ? null : onRefresh,
-          icon: loading
+          tooltip: showingHarnesses
+              ? 'Refresh harness checks'
+              : 'Refresh usage',
+          onPressed: refreshDisabled ? null : onRefresh,
+          icon: refreshing
               ? const SizedBox(
                   width: 16,
                   height: 16,

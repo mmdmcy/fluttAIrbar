@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'providers/harness_store.dart';
 import 'providers/theme_store.dart';
 import 'providers/usage_store.dart';
 import 'ui/panel_page.dart';
@@ -9,10 +10,12 @@ class FluttAIrbarApp extends StatelessWidget {
     super.key,
     required this.store,
     required this.themeStore,
+    required this.harnessStore,
   });
 
   final UsageStore store;
   final ThemeStore themeStore;
+  final HarnessStore harnessStore;
 
   ThemeData _theme(Brightness brightness) {
     final base = ColorScheme.fromSeed(
@@ -43,7 +46,11 @@ class FluttAIrbarApp extends StatelessWidget {
           themeMode: themeStore.mode,
           theme: _theme(Brightness.light),
           darkTheme: _theme(Brightness.dark),
-          home: PanelPage(store: store, themeStore: themeStore),
+          home: PanelPage(
+            store: store,
+            themeStore: themeStore,
+            harnessStore: harnessStore,
+          ),
         );
       },
     );
