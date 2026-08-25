@@ -131,8 +131,24 @@ class TrayController with TrayListener, WindowListener {
   }
 
   Future<void> showPanel() async {
-    await windowManager.show();
-    await windowManager.focus();
+    // Cinnamon can leave a hidden GTK window behind the active application
+    // when this method is called from the AppIndicator D-Bus menu. Temporarily
+    // raise it above other windows so the tray action behaves like a launcher.
+    final shouldRaise = Platform.isLinux;
+    try {
+      await windowManager.show();
+      if (shouldRaise) {
+        await windowManager.setAlwaysOnTop(true);
+      }
+      await windowManager.focus();
+      if (shouldRaise) {
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      }
+    } finally {
+      if (shouldRaise) {
+        await windowManager.setAlwaysOnTop(false);
+      }
+    }
   }
 
   Future<void> hidePanel() async {

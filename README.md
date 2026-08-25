@@ -11,6 +11,8 @@ Inspired by [steipete/CodexBar](https://github.com/steipete/CodexBar) (macOS). f
 - Cursor plan usage % (when local Cursor auth is available)
 - System tray icon + tooltip; click to open the panel
 - Supports quiet `--background` launch for desktop login integration
+- Verified allowlisted updates for Pi, Codex, Grok Build, OpenCode, and Vercel Labs fx
+- Redacted configuration overview with one-click file opening
 - Dark mode by default (toggle in header)
 - Refresh only on demand from the panel or tray menu
 
@@ -81,11 +83,64 @@ prints account and usage details):
 dart run tool/smoke_codex.dart
 ```
 
+### Harness updates
+
+The harness view scans only this fixed allowlist: `pi`, `codex`, `grok`,
+`cursor-agent`, `opencode`, `fx`, `ori`, and `zcode`. It never accepts an
+arbitrary package or shell command. Open the labeled `Harnesses` button in the
+panel header, expand any harness to see its config files, and use its
+individual `Update` action or the safe `Update all` button. The default
+terminal command is read-only:
+
+```bash
+dart run tool/update_harnesses.dart
+dart run tool/update_harnesses.dart --only pi,codex
+```
+
+After reviewing the result, explicitly opt in to updates:
+
+```bash
+dart run tool/update_harnesses.dart --update
+```
+
+The terminal updater checks npm and fx releases against their public release
+timestamp and skips them until they are at least 14 days old. If release
+metadata cannot be verified, the update is skipped. In the GUI, an individual
+`Update now` or confirmed `Update all` explicitly allows an early release, but
+only for the fixed allowlist and only when metadata is verified. Grok Build uses
+its own official non-npm channel and is labeled separately in the panel. Cursor
+Agent is shown as manual-only until it exposes a reliable update check; the app
+will not guess or run its updater. Ori is a launcher/adapter for other
+harnesses, not a standalone agent runtime. ZCode is shown for configuration
+access but has no safe updater command.
+
+The durable local harness context is documented in
+[`docs/harnesses/context.md`](docs/harnesses/context.md), with one runbook per
+harness in [`docs/harnesses/`](docs/harnesses/).
+
+### OpenRouter notes
+
+Grok Build may list multiple Inkling entries: `thinkingmachines/inkling` is
+the large paid model, while `thinkingmachines/inkling:free` is its restricted
+free route. OpenRouter also lists `thinkingmachines/inkling-small:free` as a
+separate smaller free model. The official Ori guide supports Claude Code,
+Codex, Grok Build, Hermes, OpenCode, Pi, Prime Agent, and DeepSeek Harness;
+these are agent runtimes, while Ori is their launcher/adapter. A free route
+can still apply a narrower provider-side client check: the verified Pi,
+Codex, and OpenCode paths accept both Inkling IDs, while the current Grok
+request path returns `403` for them and succeeds for Ox Alpha. See the
+[cross-harness request matrix](docs/harnesses/context.md) before treating a
+visible model alias as usable. The harness overview shows provider/model hints
+without printing API keys, so use it to confirm that the selected model and
+provider match the command you are actually running.
+
 ## Privacy
 
 - Tokens stay on your machine; fluttAIrbar does not upload them to any fluttAIrbar server.
 - HTTP calls go to OpenAI / Cursor endpoints only, using your existing session.
 - Reset credits are redeemed only after **two** confirmation dialogs; each redeem requires an explicit credit id.
+- Harness scanning reads file presence and redacted provider/model hints; credential contents are never shown.
+- Updates run fixed, reviewed argument lists; GUI early updates require explicit confirmation.
 
 ## Platforms
 
