@@ -472,7 +472,7 @@ class _HarnessCard extends StatelessWidget {
       case HarnessUpdatePhase.updating:
         return 'Updating…';
       case HarnessUpdatePhase.updated:
-        return 'Updated successfully';
+        return operationMessage ?? 'Updated successfully';
       case HarnessUpdatePhase.upToDate:
         return 'Already up to date';
       case HarnessUpdatePhase.skipped:

@@ -1,0 +1,6 @@
+interface:
+  display_name: "Principle Sequence Verifiable Units"
+  short_description: "pstack Principle Sequence Verifiable Units workflow"
+  default_prompt: "Use $principle-sequence-verifiable-units to apply the pstack Principle Sequence Verifiable Units workflow."
+policy:
+  allow_implicit_invocation: false

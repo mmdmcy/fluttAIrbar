@@ -1,0 +1,6 @@
+interface:
+  display_name: "Principle Encode Lessons In Structure"
+  short_description: "pstack Principle Encode Lessons In Structure workflow"
+  default_prompt: "Use $principle-encode-lessons-in-structure to apply the pstack Principle Encode Lessons In Structure workflow."
+policy:
+  allow_implicit_invocation: false

@@ -220,6 +220,122 @@ void main() {
     manager.dispose();
   });
 
+  test(
+    'global npm updates use npm and prefix from the discovered executable',
+    () async {
+      final directory = Directory.systemTemp.createTempSync(
+        'fluttairbar-node-prefix-',
+      );
+      final prefix = p.join(directory.path, 'node');
+      final executable = p.join(
+        prefix,
+        'lib',
+        'node_modules',
+        'test-package',
+        'bin',
+        'test',
+      );
+      final npm = p.join(prefix, 'bin', Platform.isWindows ? 'npm.cmd' : 'npm');
+      File(executable).createSync(recursive: true);
+      File(npm).createSync(recursive: true);
+
+      try {
+        final runner = _FakeCommandRunner();
+        const definition = HarnessDefinition(
+          id: 'test',
+          displayName: 'Test',
+          executable: 'test',
+          versionArgs: ['--version'],
+          updateArgs: ['update'],
+          updateSource: HarnessUpdateSource.npm,
+          npmPackage: 'test-package',
+          updateWithNpmGlobal: true,
+          configs: [],
+        );
+        final manager = HarnessManager(
+          runner: runner,
+          definitions: const [definition],
+          now: () => DateTime.utc(2026, 8, 22),
+        );
+        runner.responses['which test'] = CommandResult(
+          exitCode: 0,
+          stdout: '$executable\n',
+          stderr: '',
+        );
+        runner.responses['$executable --version'] = const CommandResult(
+          exitCode: 0,
+          stdout: '1.0.0\n',
+          stderr: '',
+        );
+        runner.responses['npm view test-package version time --json'] =
+            const CommandResult(
+              exitCode: 0,
+              stdout:
+                  '{"version":"2.0.0","time":{"2.0.0":"2026-07-01T00:00:00.000Z"}}',
+              stderr: '',
+            );
+
+        final statuses = await manager.discover();
+        final report = await manager.updateAll(statuses);
+
+        expect(report.results.single.outcome, HarnessUpdateOutcome.updated);
+        expect(
+          runner.calls,
+          contains('$npm install --global --prefix $prefix test-package@2.0.0'),
+        );
+        manager.dispose();
+      } finally {
+        directory.deleteSync(recursive: true);
+      }
+    },
+  );
+
+  test(
+    'successful update commands fail when the executable remains outdated',
+    () async {
+      final runner = _FakeCommandRunner(updatedVersion: '1.0.0');
+      const definition = HarnessDefinition(
+        id: 'test',
+        displayName: 'Test',
+        executable: 'test',
+        versionArgs: ['--version'],
+        updateArgs: ['update'],
+        updateSource: HarnessUpdateSource.npm,
+        npmPackage: 'test-package',
+        configs: [],
+      );
+      final manager = HarnessManager(
+        runner: runner,
+        definitions: const [definition],
+        now: () => DateTime.utc(2026, 8, 22),
+      );
+      runner.responses['which test'] = const CommandResult(
+        exitCode: 0,
+        stdout: '/tmp/test\n',
+        stderr: '',
+      );
+      runner.responses['/tmp/test --version'] = const CommandResult(
+        exitCode: 0,
+        stdout: '1.0.0\n',
+        stderr: '',
+      );
+      runner.responses['npm view test-package version time --json'] =
+          const CommandResult(
+            exitCode: 0,
+            stdout:
+                '{"version":"2.0.0","time":{"2.0.0":"2026-07-01T00:00:00.000Z"}}',
+            stderr: '',
+          );
+
+      final statuses = await manager.discover();
+      final report = await manager.updateAll(statuses);
+
+      expect(report.results.single.outcome, HarnessUpdateOutcome.failed);
+      expect(report.results.single.message, contains('still reports 1.0.0'));
+      manager.dispose();
+    },
+  );
+
   test('fx catalog points at its native settings and credential files', () {
     final definition = HarnessCatalog.definitions.singleWhere(
       (definition) => definition.id == 'fx',
@@ -614,8 +730,11 @@ void main() {
 }
 
 class _FakeCommandRunner implements CommandRunner {
+  _FakeCommandRunner({this.updatedVersion = '2.0.0'});
+
   final Map<String, CommandResult> responses = {};
   final List<String> calls = [];
+  final String updatedVersion;
   bool _updated = false;
 
   @override
@@ -626,13 +745,20 @@ class _FakeCommandRunner implements CommandRunner {
   }) async {
     final key = '$executable ${arguments.join(' ')}';
     calls.add(key);
+    final isPackageUpdate =
+        arguments.contains('install') &&
+        (arguments.contains('--global') || arguments.contains('--prefix'));
     if (arguments.length == 1 &&
             (arguments.single == 'update' || arguments.single == 'upgrade') ||
-        executable == 'npm' && arguments.contains('install')) {
+        isPackageUpdate) {
       _updated = true;
     }
     if (_updated && arguments.length == 1 && arguments.single == '--version') {
-      return const CommandResult(exitCode: 0, stdout: '2.0.0\n', stderr: '');
+      return CommandResult(
+        exitCode: 0,
+        stdout: '$updatedVersion\n',
+        stderr: '',
+      );
     }
     return responses[key] ??
         const CommandResult(exitCode: 0, stdout: '', stderr: '');

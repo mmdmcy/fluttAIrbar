@@ -1,0 +1,6 @@
+interface:
+  display_name: "Principle Separate Before Serializing Shared State"
+  short_description: "pstack Principle Separate Before Serializing Shared State workflow"
+  default_prompt: "Use $principle-separate-before-serializing-shared-state to apply the pstack Principle Separate Before Serializing Shared State workflow."
+policy:
+  allow_implicit_invocation: false

@@ -1,0 +1,6 @@
+interface:
+  display_name: "Automate Me"
+  short_description: "pstack Automate Me workflow"
+  default_prompt: "Use $automate-me to apply the pstack Automate Me workflow."
+policy:
+  allow_implicit_invocation: false

@@ -1,0 +1,6 @@
+interface:
+  display_name: "Principle Laziness Protocol"
+  short_description: "pstack Principle Laziness Protocol workflow"
+  default_prompt: "Use $principle-laziness-protocol to apply the pstack Principle Laziness Protocol workflow."
+policy:
+  allow_implicit_invocation: false

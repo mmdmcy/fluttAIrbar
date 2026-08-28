@@ -1,0 +1,6 @@
+interface:
+  display_name: "Architect"
+  short_description: "pstack Architect workflow"
+  default_prompt: "Use $architect to apply the pstack Architect workflow."
+policy:
+  allow_implicit_invocation: false

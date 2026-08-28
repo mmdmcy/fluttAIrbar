@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'providers/codex_capability_store.dart';
 import 'providers/harness_store.dart';
 import 'providers/theme_store.dart';
 import 'providers/usage_store.dart';
@@ -11,11 +12,13 @@ class FluttAIrbarApp extends StatelessWidget {
     required this.store,
     required this.themeStore,
     required this.harnessStore,
+    required this.codexCapabilityStore,
   });
 
   final UsageStore store;
   final ThemeStore themeStore;
   final HarnessStore harnessStore;
+  final CodexCapabilityStore codexCapabilityStore;
 
   ThemeData _theme(Brightness brightness) {
     final base = ColorScheme.fromSeed(
@@ -50,6 +53,7 @@ class FluttAIrbarApp extends StatelessWidget {
             store: store,
             themeStore: themeStore,
             harnessStore: harnessStore,
+            codexCapabilityStore: codexCapabilityStore,
           ),
         );
       },

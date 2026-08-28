@@ -1,0 +1,36 @@
+{
+  "name": "pstack",
+  "version": "0.14.3+codex.20260826160933",
+  "description": "Opt-in engineering workflows and principles for Codex, adapted from Lauren Tan's pstack.",
+  "author": {
+    "name": "Lauren Tan"
+  },
+  "homepage": "https://github.com/cursor/plugins/tree/main/pstack",
+  "repository": "https://github.com/mmdmcy/fluttAIrbar",
+  "license": "MIT",
+  "keywords": [
+    "pstack",
+    "poteto-mode",
+    "workflow",
+    "principles",
+    "codex",
+    "explicit-invocation"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "pstack for Codex",
+    "shortDescription": "Opt-in engineering workflows for Codex",
+    "longDescription": "A Codex adaptation of Lauren Tan's pstack. Every bundled skill is explicit-only so the pack can stay installed without adding its instructions to ordinary tasks.",
+    "developerName": "Lauren Tan, adapted by fluttAIrbar",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Workflow skills",
+      "Engineering principles",
+      "Explicit invocation"
+    ],
+    "defaultPrompt": [
+      "Use $poteto-mode for a rigorous engineering task."
+    ],
+    "brandColor": "#F4B400"
+  }
+}

@@ -1,0 +1,6 @@
+interface:
+  display_name: "Principle Redesign From First Principles"
+  short_description: "pstack Principle Redesign From First Principles workflow"
+  default_prompt: "Use $principle-redesign-from-first-principles to apply the pstack Principle Redesign From First Principles workflow."
+policy:
+  allow_implicit_invocation: false

@@ -8,6 +8,7 @@ Start with [`context.md`](context.md) for the architecture and the verified
 cross-harness state. Then read the page for the harness being changed:
 
 - [`codex.md`](codex.md) — native OpenAI/Codex runtime and its opt-in OpenRouter profile.
+- [`codex-capability-packs.md`](codex-capability-packs.md) — research, implementation notes, and safety boundaries for toggling Codex plugins and MCP servers.
 - [`pi.md`](pi.md) — direct Pi configuration and the Ori late-extension shim.
 - [`grok.md`](grok.md) — Grok Build native models plus its fixed OpenRouter aliases.
 - [`opencode.md`](opencode.md) — OpenCode provider whitelist and native OpenAI defaults.

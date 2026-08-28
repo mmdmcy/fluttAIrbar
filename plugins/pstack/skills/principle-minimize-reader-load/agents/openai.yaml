@@ -1,0 +1,6 @@
+interface:
+  display_name: "Principle Minimize Reader Load"
+  short_description: "pstack Principle Minimize Reader Load workflow"
+  default_prompt: "Use $principle-minimize-reader-load to apply the pstack Principle Minimize Reader Load workflow."
+policy:
+  allow_implicit_invocation: false
