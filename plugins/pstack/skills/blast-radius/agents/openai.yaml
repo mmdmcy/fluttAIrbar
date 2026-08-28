@@ -1,0 +1,6 @@
+interface:
+  display_name: "Blast Radius"
+  short_description: "pstack Blast Radius workflow"
+  default_prompt: "Use $blast-radius to apply the pstack Blast Radius workflow."
+policy:
+  allow_implicit_invocation: false

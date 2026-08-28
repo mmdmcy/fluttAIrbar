@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "upstream": {
+    "name": "pstack",
+    "version": "0.14.3",
+    "repository": "https://github.com/cursor/plugins",
+    "path": "pstack",
+    "commit": "bdf7aa355337897f167153e05069aca505dae17c",
+    "license": "MIT",
+    "author": "Lauren Tan"
+  },
+  "target": {
+    "harness": "codex",
+    "implicitInvocation": false,
+    "skillCount": 44,
+    "omittedComponents": [
+      "agents/",
+      "automations/benny/"
+    ]
+  }
+}

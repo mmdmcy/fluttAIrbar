@@ -1,0 +1,6 @@
+interface:
+  display_name: "Principle Never Block On The Human"
+  short_description: "pstack Principle Never Block On The Human workflow"
+  default_prompt: "Use $principle-never-block-on-the-human to apply the pstack Principle Never Block On The Human workflow."
+policy:
+  allow_implicit_invocation: false

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'app.dart';
+import 'providers/codex_capability_store.dart';
 import 'providers/harness_store.dart';
 import 'providers/theme_store.dart';
 import 'providers/usage_store.dart';
@@ -16,6 +17,7 @@ Future<void> main(List<String> args) async {
   final store = UsageStore();
   final themeStore = ThemeStore();
   final harnessStore = HarnessStore();
+  final codexCapabilityStore = CodexCapabilityStore();
   final tray = TrayController(store);
   await tray.init(startHidden: args.contains(backgroundArgument));
 
@@ -24,6 +26,7 @@ Future<void> main(List<String> args) async {
       store: store,
       themeStore: themeStore,
       harnessStore: harnessStore,
+      codexCapabilityStore: codexCapabilityStore,
     ),
   );
 }

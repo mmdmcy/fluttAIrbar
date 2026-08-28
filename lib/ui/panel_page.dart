@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
 
 import '../models/usage_snapshot.dart';
+import '../providers/codex_capability_store.dart';
 import '../providers/harness_store.dart';
 import '../providers/theme_store.dart';
 import '../providers/usage_store.dart';
+import 'codex_capability_panel.dart';
 import 'harness_panel.dart';
 import 'widgets/usage_meter.dart';
+
+enum _PanelView { usage, harnesses, capabilities }
 
 class PanelPage extends StatefulWidget {
   const PanelPage({
@@ -13,18 +17,20 @@ class PanelPage extends StatefulWidget {
     required this.store,
     required this.themeStore,
     required this.harnessStore,
+    required this.codexCapabilityStore,
   });
 
   final UsageStore store;
   final ThemeStore themeStore;
   final HarnessStore harnessStore;
+  final CodexCapabilityStore codexCapabilityStore;
 
   @override
   State<PanelPage> createState() => _PanelPageState();
 }
 
 class _PanelPageState extends State<PanelPage> {
-  bool _showHarnesses = false;
+  _PanelView _view = _PanelView.usage;
 
   @override
   Widget build(BuildContext context) {
@@ -33,11 +39,34 @@ class _PanelPageState extends State<PanelPage> {
         widget.store,
         widget.themeStore,
         widget.harnessStore,
+        widget.codexCapabilityStore,
       ]),
       builder: (context, _) {
         final snap = widget.store.snapshot;
         final theme = Theme.of(context);
-        final showingHarnesses = _showHarnesses;
+        final showingHarnesses = _view == _PanelView.harnesses;
+        final showingCapabilities = _view == _PanelView.capabilities;
+        final refreshing = showingHarnesses
+            ? widget.harnessStore.loading
+            : showingCapabilities
+            ? widget.codexCapabilityStore.loading
+            : widget.store.loading;
+        final refreshDisabled = showingHarnesses
+            ? widget.harnessStore.loading || widget.harnessStore.updating
+            : showingCapabilities
+            ? widget.codexCapabilityStore.loading ||
+                  widget.codexCapabilityStore.mutating
+            : widget.store.loading || widget.store.redeeming;
+        final refreshedAt = showingHarnesses
+            ? widget.harnessStore.checkedAt
+            : showingCapabilities
+            ? widget.codexCapabilityStore.checkedAt
+            : snap.refreshedAt;
+        final statusMessage = showingHarnesses
+            ? widget.harnessStore.statusMessage
+            : showingCapabilities
+            ? widget.codexCapabilityStore.statusMessage
+            : widget.store.statusMessage;
         return Scaffold(
           backgroundColor: theme.colorScheme.surface,
           body: Padding(
@@ -46,33 +75,23 @@ class _PanelPageState extends State<PanelPage> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 _Header(
-                  refreshing: showingHarnesses
-                      ? widget.harnessStore.loading
-                      : widget.store.loading,
-                  refreshDisabled: showingHarnesses
-                      ? widget.harnessStore.loading ||
-                            widget.harnessStore.updating
-                      : widget.store.loading || widget.store.redeeming,
-                  refreshedAt: showingHarnesses
-                      ? widget.harnessStore.checkedAt
-                      : snap.refreshedAt,
+                  refreshing: refreshing,
+                  refreshDisabled: refreshDisabled,
+                  refreshedAt: refreshedAt,
                   isDark: widget.themeStore.isDark,
-                  showingHarnesses: showingHarnesses,
+                  view: _view,
                   onRefresh: showingHarnesses
                       ? widget.harnessStore.refresh
+                      : showingCapabilities
+                      ? widget.codexCapabilityStore.refresh
                       : widget.store.refresh,
                   onToggleTheme: widget.themeStore.toggle,
-                  onToggleHarnesses: _toggleHarnesses,
+                  onViewChanged: _setView,
                 ),
-                if ((showingHarnesses
-                        ? widget.harnessStore.statusMessage
-                        : widget.store.statusMessage) !=
-                    null) ...[
+                if (statusMessage != null) ...[
                   const SizedBox(height: 6),
                   Text(
-                    (showingHarnesses
-                        ? widget.harnessStore.statusMessage
-                        : widget.store.statusMessage)!,
+                    statusMessage,
                     style: theme.textTheme.labelSmall?.copyWith(
                       color: theme.colorScheme.primary,
                     ),
@@ -81,6 +100,12 @@ class _PanelPageState extends State<PanelPage> {
                 const SizedBox(height: 8),
                 if (showingHarnesses)
                   Expanded(child: HarnessPanel(store: widget.harnessStore))
+                else if (showingCapabilities)
+                  Expanded(
+                    child: CodexCapabilityPanel(
+                      store: widget.codexCapabilityStore,
+                    ),
+                  )
                 else ...[
                   _CodexBlock(
                     usage: snap.codex,
@@ -109,8 +134,9 @@ class _PanelPageState extends State<PanelPage> {
     );
   }
 
-  void _toggleHarnesses() {
-    setState(() => _showHarnesses = !_showHarnesses);
+  void _setView(_PanelView view) {
+    if (_view == view) return;
+    setState(() => _view = view);
   }
 
   Future<void> _confirmRedeem(BuildContext context, ResetCredit credit) async {
@@ -187,26 +213,42 @@ class _PanelPageState extends State<PanelPage> {
   }
 }
 
+String _viewLabel(_PanelView view) {
+  return switch (view) {
+    _PanelView.usage => 'Usage',
+    _PanelView.harnesses => 'Harnesses',
+    _PanelView.capabilities => 'Capabilities',
+  };
+}
+
+IconData _viewIcon(_PanelView view) {
+  return switch (view) {
+    _PanelView.usage => Icons.data_usage_outlined,
+    _PanelView.harnesses => Icons.developer_mode_outlined,
+    _PanelView.capabilities => Icons.extension_outlined,
+  };
+}
+
 class _Header extends StatelessWidget {
   const _Header({
     required this.refreshing,
     required this.refreshDisabled,
     required this.refreshedAt,
     required this.isDark,
-    required this.showingHarnesses,
+    required this.view,
     required this.onRefresh,
     required this.onToggleTheme,
-    required this.onToggleHarnesses,
+    required this.onViewChanged,
   });
 
   final bool refreshing;
   final bool refreshDisabled;
   final DateTime? refreshedAt;
   final bool isDark;
-  final bool showingHarnesses;
+  final _PanelView view;
   final VoidCallback onRefresh;
   final VoidCallback onToggleTheme;
-  final VoidCallback onToggleHarnesses;
+  final ValueChanged<_PanelView> onViewChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -241,18 +283,44 @@ class _Header extends StatelessWidget {
             ],
           ),
         ),
-        FilledButton.tonalIcon(
-          onPressed: onToggleHarnesses,
-          icon: Icon(
-            showingHarnesses
-                ? Icons.data_usage_outlined
-                : Icons.developer_mode_outlined,
-            size: 17,
-          ),
-          label: Text(showingHarnesses ? 'Usage' : 'Harnesses'),
-          style: FilledButton.styleFrom(
-            visualDensity: VisualDensity.compact,
-            padding: const EdgeInsets.symmetric(horizontal: 9),
+        PopupMenuButton<_PanelView>(
+          tooltip: 'Switch view',
+          onSelected: onViewChanged,
+          itemBuilder: (context) => [
+            for (final option in _PanelView.values)
+              PopupMenuItem<_PanelView>(
+                value: option,
+                child: Row(
+                  children: [
+                    Icon(_viewIcon(option), size: 18),
+                    const SizedBox(width: 8),
+                    Text(_viewLabel(option)),
+                    if (option == view) ...[
+                      const Spacer(),
+                      const Icon(Icons.check, size: 17),
+                    ],
+                  ],
+                ),
+              ),
+          ],
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: theme.colorScheme.secondaryContainer,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(_viewIcon(view), size: 17),
+                  const SizedBox(width: 6),
+                  Text(_viewLabel(view)),
+                  const SizedBox(width: 2),
+                  const Icon(Icons.expand_more, size: 16),
+                ],
+              ),
+            ),
           ),
         ),
         IconButton(
@@ -266,8 +334,10 @@ class _Header extends StatelessWidget {
         ),
         IconButton(
           visualDensity: VisualDensity.compact,
-          tooltip: showingHarnesses
+          tooltip: view == _PanelView.harnesses
               ? 'Refresh harness checks'
+              : view == _PanelView.capabilities
+              ? 'Scan Codex capabilities'
               : 'Refresh usage',
           onPressed: refreshDisabled ? null : onRefresh,
           icon: refreshing

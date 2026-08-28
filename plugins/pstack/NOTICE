@@ -1,0 +1,9 @@
+This directory is an adaptation of Cursor's pstack plugin.
+
+Original work:
+- Author: Lauren Tan
+- Source: https://github.com/cursor/plugins/tree/main/pstack
+- Upstream version: 0.14.3
+- License: MIT
+
+The Codex port, packaging, category catalog, and host-specific translations are maintained in fluttAIrbar. The port is not affiliated with or endorsed by Cursor, OpenAI, or Lauren Tan.

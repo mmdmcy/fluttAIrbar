@@ -1,0 +1,6 @@
+interface:
+  display_name: "Teach"
+  short_description: "pstack Teach workflow"
+  default_prompt: "Use $teach to apply the pstack Teach workflow."
+policy:
+  allow_implicit_invocation: false

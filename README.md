@@ -13,6 +13,7 @@ Inspired by [steipete/CodexBar](https://github.com/steipete/CodexBar) (macOS). f
 - Supports quiet `--background` launch for desktop login integration
 - Verified allowlisted updates for Pi, Codex, Grok Build, OpenCode, and Vercel Labs fx
 - Redacted configuration overview with one-click file opening
+- Manual Codex capability controls for installed plugins and whole MCP servers
 - Dark mode by default (toggle in header)
 - Refresh only on demand from the panel or tray menu
 
@@ -117,6 +118,27 @@ access but has no safe updater command.
 The durable local harness context is documented in
 [`docs/harnesses/context.md`](docs/harnesses/context.md), with one runbook per
 harness in [`docs/harnesses/`](docs/harnesses/).
+
+### Codex capability packs
+
+Open the panel view menu and choose `Capabilities`, then press `Scan`. The
+panel can independently enable or disable installed Codex plugins and whole
+MCP servers by editing `$CODEX_HOME/config.toml`. Confirm changes only while
+Codex is idle; fluttAIrbar never restarts or interrupts a running CLI. Restart
+Codex manually, then scan again.
+
+The repository also includes a first-party Codex port of the official Cursor
+pstack source. Install it deliberately from the local marketplace before
+scanning:
+
+```bash
+codex plugin marketplace add .
+codex plugin add pstack@fluttairbar-local
+```
+
+See [`plugins/pstack/README.md`](plugins/pstack/README.md) and the
+[`Codex capability research notes`](docs/harnesses/codex-capability-packs.md)
+for the port boundary, categories, attribution, and safety model.
 
 ### OpenRouter notes
 

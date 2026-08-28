@@ -136,6 +136,13 @@ class LocalCommandRunner implements CommandRunner {
   }
 }
 
+class _NpmInstallation {
+  const _NpmInstallation({required this.executable, required this.prefix});
+
+  final String executable;
+  final String prefix;
+}
+
 class HarnessManager {
   HarnessManager({
     CommandRunner? runner,
@@ -273,17 +280,26 @@ class HarnessManager {
     final executable = status.executablePath!;
     final result = await _runUpdate(status, executable);
     if (result.succeeded) {
+      // The updater can replace a symlink or otherwise change which binary is
+      // first on PATH. Resolve it again so verification checks the executable
+      // the user will actually run after the update.
+      final verificationExecutable =
+          await _findExecutable(status.definition.executable) ?? executable;
       final verification = await _runner.run(
-        executable,
+        verificationExecutable,
         status.definition.versionArgs,
       );
-      final verifiedVersion = _versionFrom(verification.stdout);
-      if (status.updateAvailable &&
-          (verifiedVersion == null ||
-              compareVersions(verifiedVersion, status.currentVersion!) <= 0)) {
-        final detail = verifiedVersion == null
+      final verifiedVersion = verification.succeeded
+          ? _versionFrom(verification.stdout)
+          : null;
+      final expectedVersion = status.release!.latestVersion;
+      if (verifiedVersion == null ||
+          compareVersions(verifiedVersion, expectedVersion) < 0) {
+        final detail = !verification.succeeded
+            ? _commandFailure(verification, prefix: 'version verification')
+            : verifiedVersion == null
             ? 'the installed version could not be verified'
-            : 'it still reports $verifiedVersion';
+            : 'it still reports $verifiedVersion (expected $expectedVersion)';
         return HarnessUpdateResult(
           status: status,
           outcome: HarnessUpdateOutcome.failed,
@@ -294,9 +310,7 @@ class HarnessManager {
       return HarnessUpdateResult(
         status: status,
         outcome: HarnessUpdateOutcome.updated,
-        message: verifiedVersion == null
-            ? 'Update command completed'
-            : 'Updated to $verifiedVersion',
+        message: 'Updated to $verifiedVersion',
         exitCode: result.exitCode,
       );
     }
@@ -316,11 +330,21 @@ class HarnessManager {
         definition.updateSource == HarnessUpdateSource.npm &&
         packageName != null &&
         targetVersion != null) {
-      return _runner.run('npm', [
-        'install',
-        '--global',
-        '$packageName@$targetVersion',
-      ], timeout: const Duration(minutes: 5));
+      final npmInstallation = _npmInstallationFor(executable);
+      final arguments = <String>['install', '--global'];
+      if (npmInstallation != null) {
+        // npm chooses its global prefix from the Node runtime that launches
+        // it. A desktop-launched app may put another version manager's Node
+        // shim first on PATH, so pin the install prefix to the executable we
+        // discovered and verify afterwards against that same installation.
+        arguments.addAll(['--prefix', npmInstallation.prefix]);
+      }
+      arguments.add('$packageName@$targetVersion');
+      return _runner.run(
+        npmInstallation?.executable ?? 'npm',
+        arguments,
+        timeout: const Duration(minutes: 5),
+      );
     }
     if (definition.updatePackageInPlace &&
         definition.updateSource == HarnessUpdateSource.npm &&
@@ -343,6 +367,33 @@ class HarnessManager {
       definition.updateArgs,
       timeout: const Duration(minutes: 5),
     );
+  }
+
+  _NpmInstallation? _npmInstallationFor(String executable) {
+    var resolvedExecutable = executable;
+    try {
+      resolvedExecutable = File(executable).resolveSymbolicLinksSync();
+    } on Object catch (_) {
+      // Keep the lexical path when the executable is not a local file.
+    }
+
+    final npmName = Platform.isWindows ? 'npm.cmd' : 'npm';
+    var directory = p.dirname(resolvedExecutable);
+    while (true) {
+      if (p.basename(directory) == 'node_modules') {
+        final nodeModulesParent = p.dirname(directory);
+        final prefix = p.basename(nodeModulesParent) == 'lib'
+            ? p.dirname(nodeModulesParent)
+            : nodeModulesParent;
+        final candidate = p.join(prefix, 'bin', npmName);
+        if (File(candidate).existsSync()) {
+          return _NpmInstallation(executable: candidate, prefix: prefix);
+        }
+      }
+      final parent = p.dirname(directory);
+      if (parent == directory) return null;
+      directory = parent;
+    }
   }
 
   String? _npmPrefixFor(String executable) {

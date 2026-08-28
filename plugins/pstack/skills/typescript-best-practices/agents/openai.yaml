@@ -1,0 +1,6 @@
+interface:
+  display_name: "Typescript Best Practices"
+  short_description: "pstack Typescript Best Practices workflow"
+  default_prompt: "Use $typescript-best-practices to apply the pstack Typescript Best Practices workflow."
+policy:
+  allow_implicit_invocation: false

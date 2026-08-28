@@ -1,0 +1,6 @@
+interface:
+  display_name: "Unslop"
+  short_description: "pstack Unslop workflow"
+  default_prompt: "Use $unslop to apply the pstack Unslop workflow."
+policy:
+  allow_implicit_invocation: false

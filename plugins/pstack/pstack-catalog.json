@@ -1,0 +1,120 @@
+{
+  "schemaVersion": 1,
+  "id": "pstack",
+  "displayName": "pstack for Codex",
+  "upstreamVersion": "0.14.3",
+  "skillCount": 44,
+  "invocation": {
+    "allowImplicitInvocation": false,
+    "explicitPrefix": "$"
+  },
+  "categories": [
+    {
+      "id": "entry-mode",
+      "displayName": "Entry mode",
+      "skills": ["poteto-mode"]
+    },
+    {
+      "id": "workflow",
+      "displayName": "Workflow skills",
+      "skills": [
+        "architect",
+        "arena",
+        "automate-me",
+        "blast-radius",
+        "bro",
+        "create-verification-skill",
+        "figure-it-out",
+        "how",
+        "interrogate",
+        "maintain-verification-skill",
+        "no-comments",
+        "recall",
+        "reflect",
+        "setup-pstack",
+        "show-me-your-work",
+        "swarm",
+        "tdd",
+        "teach",
+        "technical-writing",
+        "typescript-best-practices",
+        "unslop",
+        "why"
+      ]
+    },
+    {
+      "id": "principles-core",
+      "displayName": "Principles · core",
+      "skills": [
+        "principle-laziness-protocol",
+        "principle-foundational-thinking",
+        "principle-redesign-from-first-principles",
+        "principle-subtract-before-you-add",
+        "principle-minimize-reader-load",
+        "principle-outcome-oriented-execution",
+        "principle-experience-first",
+        "principle-exhaust-the-design-space",
+        "principle-build-the-lever"
+      ]
+    },
+    {
+      "id": "principles-architecture",
+      "displayName": "Principles · architecture",
+      "skills": [
+        "principle-model-the-domain",
+        "principle-boundary-discipline",
+        "principle-type-system-discipline",
+        "principle-make-operations-idempotent",
+        "principle-migrate-callers-then-delete-legacy-apis",
+        "principle-separate-before-serializing-shared-state"
+      ]
+    },
+    {
+      "id": "principles-verification",
+      "displayName": "Principles · verification",
+      "skills": [
+        "principle-prove-it-works",
+        "principle-fix-root-causes",
+        "principle-sequence-verifiable-units"
+      ]
+    },
+    {
+      "id": "principles-delegation",
+      "displayName": "Principles · delegation",
+      "skills": [
+        "principle-guard-the-context-window",
+        "principle-never-block-on-the-human"
+      ]
+    },
+    {
+      "id": "principles-meta",
+      "displayName": "Principles · meta",
+      "skills": ["principle-encode-lessons-in-structure"]
+    }
+  ],
+  "playbooks": [
+    {"id": "investigation", "path": "skills/poteto-mode/playbooks/investigation.md"},
+    {"id": "bug-fix", "path": "skills/poteto-mode/playbooks/bug-fix.md"},
+    {"id": "perf-issue", "path": "skills/poteto-mode/playbooks/perf-issue.md"},
+    {"id": "hillclimb", "path": "skills/poteto-mode/playbooks/hillclimb.md"},
+    {"id": "runtime-forensics", "path": "skills/poteto-mode/playbooks/runtime-forensics.md"},
+    {"id": "trace-forensics", "path": "skills/poteto-mode/playbooks/trace-forensics.md"},
+    {"id": "feature", "path": "skills/poteto-mode/playbooks/feature.md"},
+    {"id": "refactoring", "path": "skills/poteto-mode/playbooks/refactoring.md"},
+    {"id": "prototype", "path": "skills/poteto-mode/playbooks/prototype.md"},
+    {"id": "visual-parity", "path": "skills/poteto-mode/playbooks/visual-parity.md"},
+    {"id": "authoring-a-skill", "path": "skills/poteto-mode/playbooks/authoring-a-skill.md"},
+    {"id": "eval", "path": "skills/poteto-mode/playbooks/eval.md"},
+    {"id": "babysit", "path": "skills/poteto-mode/playbooks/babysit.md"},
+    {"id": "shipping", "path": "skills/poteto-mode/playbooks/shipping.md"},
+    {"id": "autonomous-run", "path": "skills/poteto-mode/playbooks/autonomous-run.md"},
+    {"id": "orchestrate", "path": "skills/poteto-mode/playbooks/orchestrate.md"},
+    {"id": "autopilot-full", "path": "skills/poteto-mode/playbooks/autopilot-full.md"},
+    {"id": "autopilot-stack", "path": "skills/poteto-mode/playbooks/autopilot-stack.md"},
+    {"id": "session-pickup", "path": "skills/poteto-mode/playbooks/session-pickup.md"},
+    {"id": "pause-safely", "path": "skills/poteto-mode/playbooks/pause-safely.md"},
+    {"id": "multi-phase-plan", "path": "skills/poteto-mode/playbooks/multi-phase-plan.md"},
+    {"id": "worktree-cleanup", "path": "skills/poteto-mode/playbooks/worktree-cleanup.md"}
+  ],
+  "omitted": ["agents/", "automations/benny/"]
+}

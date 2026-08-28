@@ -1,0 +1,6 @@
+interface:
+  display_name: "Principle Make Operations Idempotent"
+  short_description: "pstack Principle Make Operations Idempotent workflow"
+  default_prompt: "Use $principle-make-operations-idempotent to apply the pstack Principle Make Operations Idempotent workflow."
+policy:
+  allow_implicit_invocation: false

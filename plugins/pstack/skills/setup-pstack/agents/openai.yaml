@@ -1,0 +1,6 @@
+interface:
+  display_name: "Setup Pstack"
+  short_description: "pstack Setup Pstack workflow"
+  default_prompt: "Use $setup-pstack to apply the pstack Setup Pstack workflow."
+policy:
+  allow_implicit_invocation: false
