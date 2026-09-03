@@ -114,13 +114,14 @@ class TrayController with TrayListener, WindowListener {
               label: 'Resets · $resets available',
               disabled: true,
             ),
-            MenuItem(
-              key: 'cursor',
-              label: cursorPct != null
-                  ? 'Cursor · ${(100 - cursorPct).clamp(0, 100).round()}% left'
-                  : 'Cursor · —',
-              disabled: true,
-            ),
+            if (store.cursorEnabled)
+              MenuItem(
+                key: 'cursor',
+                label: cursorPct != null
+                    ? 'Cursor · ${(100 - cursorPct).clamp(0, 100).round()}% left'
+                    : 'Cursor · —',
+                disabled: true,
+              ),
             MenuItem.separator(),
             MenuItem(key: 'refresh', label: 'Refresh'),
             MenuItem(key: 'quit', label: 'Quit'),

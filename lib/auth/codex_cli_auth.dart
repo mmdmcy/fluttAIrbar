@@ -16,7 +16,8 @@ class CodexCliAuthStore {
     if (codexHome != null && codexHome.isNotEmpty) {
       return p.join(codexHome, 'auth.json');
     }
-    final home = Platform.environment['HOME'] ??
+    final home =
+        Platform.environment['HOME'] ??
         Platform.environment['USERPROFILE'] ??
         '';
     return p.join(home, '.codex', 'auth.json');
@@ -45,8 +46,9 @@ class CodexCliAuthStore {
     if (access == null || access.trim().isEmpty) return null;
 
     final lastRefreshRaw = data['last_refresh']?.toString();
-    DateTime? lastRefresh =
-        lastRefreshRaw != null ? DateTime.tryParse(lastRefreshRaw) : null;
+    DateTime? lastRefresh = lastRefreshRaw != null
+        ? DateTime.tryParse(lastRefreshRaw)
+        : null;
 
     // Refresh when last_refresh older than ~8 days (CodexBar policy).
     final refreshTokenForRefresh = refresh;
@@ -128,23 +130,30 @@ class CodexCliAuthStore {
   }
 }
 
-/// Resolves Codex credentials: OpenCode first, then Codex CLI.
+/// Resolves Codex credentials from the Codex CLI session.
+///
+/// OpenCode credentials are deliberately not consulted here. The CLI session
+/// is the single source of truth, so a stale token owned by another tool can
+/// never mask the authenticated `codex` session already on the machine.
 class CodexAuthResolver {
-  static Future<OAuthCredentials> resolve({http.Client? client}) async {
+  static Future<OAuthCredentials> resolve({
+    http.Client? client,
+    String? codexPath,
+  }) async {
     try {
-      final oc = OpenCodeAuthStore.load();
-      if (oc != null) return oc;
+      final cli = await CodexCliAuthStore.load(path: codexPath, client: client);
+      if (cli != null) return cli;
     } on AuthException {
       rethrow;
+    } on Object catch (_) {
+      throw AuthException(
+        'Codex CLI auth could not be read. Check `codex login` status.',
+      );
     }
-
-    final cli = await CodexCliAuthStore.load(client: client);
-    if (cli != null) return cli;
 
     throw AuthException(
       'No ChatGPT/Codex credentials found.\n'
-      '• OpenCode: run `opencode providers login` (ChatGPT/Codex OAuth)\n'
-      '• Or Codex CLI: run `codex login` (writes ~/.codex/auth.json)',
+      'Run `codex login` (writes ~/.codex/auth.json).',
     );
   }
 }

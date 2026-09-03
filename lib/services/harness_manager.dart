@@ -378,6 +378,15 @@ class HarnessManager {
     }
 
     final npmName = Platform.isWindows ? 'npm.cmd' : 'npm';
+    // Version managers such as nvm install both the CLI and npm directly in
+    // the same `bin` directory. Prefer that sibling npm so discovery and
+    // updates stay attached to the Node installation that owns the CLI.
+    final siblingNpm = p.join(p.dirname(resolvedExecutable), npmName);
+    if (File(siblingNpm).existsSync()) {
+      final prefix = p.dirname(p.dirname(siblingNpm));
+      return _NpmInstallation(executable: siblingNpm, prefix: prefix);
+    }
+
     var directory = p.dirname(resolvedExecutable);
     while (true) {
       if (p.basename(directory) == 'node_modules') {
@@ -444,7 +453,10 @@ class HarnessManager {
     }
 
     if (definition.updateSource == HarnessUpdateSource.npm) {
-      releaseLookup = await _lookupNpmRelease(definition);
+      releaseLookup = await _lookupNpmRelease(
+        definition,
+        executablePath: executablePath,
+      );
     } else if (definition.updateSource == HarnessUpdateSource.githubRelease) {
       releaseLookup = await _lookupGithubRelease(definition);
     } else if (definition.checkArgs != null) {
@@ -487,14 +499,20 @@ class HarnessManager {
     return null;
   }
 
-  Future<_ReleaseLookup> _lookupNpmRelease(HarnessDefinition definition) async {
+  Future<_ReleaseLookup> _lookupNpmRelease(
+    HarnessDefinition definition, {
+    String? executablePath,
+  }) async {
     final packageNames = definition.packageCandidates;
     if (packageNames.isEmpty) {
       return const _ReleaseLookup(error: 'npm package is not configured');
     }
+    final npmExecutable = executablePath == null
+        ? null
+        : _npmInstallationFor(executablePath)?.executable;
     _ReleaseLookup? lastLookup;
     for (final packageName in packageNames) {
-      final result = await _runner.run('npm', [
+      final result = await _runner.run(npmExecutable ?? 'npm', [
         'view',
         packageName,
         'version',

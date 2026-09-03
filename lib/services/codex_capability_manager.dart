@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
+import 'package:yaml/yaml.dart';
 
 import '../models/codex_capability.dart';
 import 'harness_config.dart';
@@ -25,6 +26,80 @@ class CodexCapabilityChange {
 
 class CodexCapabilityConfigEditor {
   const CodexCapabilityConfigEditor();
+
+  Map<String, bool> skillStates(String contents) {
+    final lines = contents.split(RegExp(r'\r?\n'));
+    final states = <String, bool>{};
+    for (final block in _skillConfigBlocks(lines)) {
+      if (states.containsKey(block.path)) {
+        throw StateError(
+          'Codex config has duplicate skills.config entries for ${block.path}',
+        );
+      }
+      states[block.path] = block.enabled ?? true;
+    }
+    return states;
+  }
+
+  String setSkillEnabled(
+    String contents, {
+    required String path,
+    required bool value,
+  }) {
+    if (!p.isAbsolute(path) || p.basename(path) != 'SKILL.md') {
+      throw ArgumentError.value(
+        path,
+        'path',
+        'must be an absolute SKILL.md path',
+      );
+    }
+
+    final newline = contents.contains('\r\n') ? '\r\n' : '\n';
+    final hadTrailingNewline = contents.endsWith('\n');
+    final lines = contents.split(RegExp(r'\r?\n'));
+    if (hadTrailingNewline && lines.isNotEmpty && lines.last.isEmpty) {
+      lines.removeLast();
+    }
+    if (lines.length == 1 && lines.single.isEmpty) lines.clear();
+
+    final matches = _skillConfigBlocks(
+      lines,
+    ).where((block) => block.path == path).toList();
+    if (matches.length > 1) {
+      throw StateError(
+        'Codex config has duplicate skills.config entries for $path',
+      );
+    }
+
+    if (matches.isEmpty) {
+      if (value) return contents;
+      if (lines.isNotEmpty && lines.last.trim().isNotEmpty) lines.add('');
+      lines
+        ..add('[[skills.config]]')
+        ..add('path = ${jsonEncode(path)}')
+        ..add('enabled = false');
+      return '${lines.join(newline)}$newline';
+    }
+
+    final block = matches.single;
+    final renderedValue = value ? 'true' : 'false';
+    if (block.enabledLine == null) {
+      lines.insert(block.pathLine + 1, 'enabled = $renderedValue');
+    } else {
+      final keyPattern = RegExp(
+        r'^(\s*enabled\s*=\s*)(true|false)(\s*(?:#.*)?)$',
+      );
+      final index = block.enabledLine!;
+      lines[index] = lines[index].replaceFirstMapped(
+        keyPattern,
+        (match) => '${match.group(1)}$renderedValue${match.group(3) ?? ''}',
+      );
+    }
+
+    var result = lines.join(newline);
+    if (hadTrailingNewline) result += newline;
+    return result;
+  }
 
   String setBooleanInTable(
     String contents, {
@@ -99,6 +174,121 @@ class CodexCapabilityConfigEditor {
     if (hadTrailingNewline || addedTable) result += newline;
     return result;
   }
+
+  List<_SkillConfigBlock> _skillConfigBlocks(List<String> lines) {
+    final blocks = <_SkillConfigBlock>[];
+    for (var index = 0; index < lines.length; index++) {
+      if (lines[index].trim() != '[[skills.config]]') continue;
+      var end = lines.length;
+      for (var candidate = index + 1; candidate < lines.length; candidate++) {
+        if (lines[candidate].trimLeft().startsWith('[')) {
+          end = candidate;
+          break;
+        }
+      }
+
+      final pathLines = <int>[];
+      final enabledLines = <int>[];
+      for (var candidate = index + 1; candidate < end; candidate++) {
+        if (RegExp(r'^\s*path\s*=').hasMatch(lines[candidate])) {
+          pathLines.add(candidate);
+        }
+        if (RegExp(r'^\s*enabled\s*=').hasMatch(lines[candidate])) {
+          enabledLines.add(candidate);
+        }
+      }
+      if (pathLines.length != 1 || enabledLines.length > 1) {
+        throw StateError(
+          'Codex config has an unreadable [[skills.config]] entry',
+        );
+      }
+
+      final pathLine = pathLines.single;
+      final pathValue = lines[pathLine].replaceFirst(
+        RegExp(r'^\s*path\s*=\s*'),
+        '',
+      );
+      final parsedPath = _parseTomlString(pathValue);
+      if (parsedPath == null) {
+        throw StateError('Codex config has an unreadable skills.config path');
+      }
+
+      bool? enabled;
+      if (enabledLines.isNotEmpty) {
+        final enabledValue = lines[enabledLines.single].replaceFirst(
+          RegExp(r'^\s*enabled\s*=\s*'),
+          '',
+        );
+        final match = RegExp(
+          r'^(true|false)\s*(?:#.*)?$',
+        ).firstMatch(enabledValue);
+        if (match == null) {
+          throw StateError(
+            'Codex config has an unreadable skills.config enabled value',
+          );
+        }
+        enabled = match.group(1) == 'true';
+      }
+      blocks.add(
+        _SkillConfigBlock(
+          path: parsedPath,
+          pathLine: pathLine,
+          enabledLine: enabledLines.firstOrNull,
+          enabled: enabled,
+        ),
+      );
+      index = end - 1;
+    }
+    return blocks;
+  }
+
+  String? _parseTomlString(String value) {
+    final trimmed = value.trimLeft();
+    if (trimmed.startsWith("'")) {
+      final end = trimmed.indexOf("'", 1);
+      if (end == -1 || !_onlyCommentAfter(trimmed, end + 1)) return null;
+      return trimmed.substring(1, end);
+    }
+    if (!trimmed.startsWith('"')) return null;
+
+    var escaped = false;
+    for (var index = 1; index < trimmed.length; index++) {
+      final character = trimmed[index];
+      if (escaped) {
+        escaped = false;
+      } else if (character == r'\') {
+        escaped = true;
+      } else if (character == '"') {
+        if (!_onlyCommentAfter(trimmed, index + 1)) return null;
+        try {
+          final decoded = jsonDecode(trimmed.substring(0, index + 1));
+          return decoded is String ? decoded : null;
+        } on FormatException {
+          return null;
+        }
+      }
+    }
+    return null;
+  }
+
+  bool _onlyCommentAfter(String value, int start) {
+    final remainder = value.substring(start).trimLeft();
+    return remainder.isEmpty || remainder.startsWith('#');
+  }
+}
+
+class _SkillConfigBlock {
+  const _SkillConfigBlock({
+    required this.path,
+    required this.pathLine,
+    required this.enabledLine,
+    required this.enabled,
+  });
+
+  final String path;
+  final int pathLine;
+  final int? enabledLine;
+  final bool? enabled;
 }
 
 class CodexCapabilityManager {
@@ -121,6 +311,7 @@ class CodexCapabilityManager {
 
   Future<CodexCapabilitySnapshot> discover() async {
     final pluginFuture = _runner.run('codex', ['plugin', 'list', '--json']);
+    final skillFuture = Future<_SkillDiscovery>(_discoverSkills);
     final mcpDefinitions = [
       for (final pack in CodexCapabilityCatalog.packs)
         for (final component in pack.components)
@@ -135,6 +326,7 @@ class CodexCapabilityManager {
     final pluginResult = await pluginFuture;
     final mcpListResult = await mcpListFuture;
     final mcpResults = await Future.wait(mcpFutures);
+    final skillDiscovery = await skillFuture;
     var pluginRecords = const <_CodexPluginRecord>[];
     var pluginError = pluginResult.succeeded
         ? null
@@ -179,6 +371,26 @@ class CodexCapabilityManager {
         .toList();
     final definitions = <CodexCapabilityPackDefinition>[
       ...CodexCapabilityCatalog.packs,
+      if (skillDiscovery.records.isNotEmpty)
+        CodexCapabilityPackDefinition(
+          id: 'user-skills',
+          displayName: 'Standalone user skills',
+          description:
+              'Skills discovered in your user-level Codex skill folders. These switches control each exact SKILL.md independently of plugins.',
+          components: [
+            for (final record in skillDiscovery.records)
+              CodexCapabilityComponentDefinition(
+                id: 'skill:${record.path}',
+                packId: 'user-skills',
+                displayName: record.name,
+                description: record.description,
+                kind: CodexCapabilityComponentKind.skill,
+                skillPath: record.path,
+                skillScope: record.scope,
+                allowsImplicitInvocation: record.allowsImplicitInvocation,
+              ),
+          ],
+        ),
       if (dynamicPluginRecords.isNotEmpty)
         CodexCapabilityPackDefinition(
           id: 'other-plugins',
@@ -226,12 +438,20 @@ class CodexCapabilityManager {
       for (final definition in pack.components) {
         if (definition.kind == CodexCapabilityComponentKind.plugin) {
           components.add(_pluginStatus(definition, pluginRecords, pluginError));
-        } else {
+        } else if (definition.kind == CodexCapabilityComponentKind.mcp) {
           components.add(
             _mcpStatus(
               definition,
               mcpById[definition.mcpServerName!],
               listed: listedMcpNames.contains(definition.mcpServerName),
+            ),
+          );
+        } else {
+          components.add(
+            _skillStatus(
+              definition,
+              skillDiscovery.states,
+              skillDiscovery.error,
             ),
           );
         }
@@ -247,7 +467,8 @@ class CodexCapabilityManager {
       checkedAt: DateTime.now(),
       error:
           pluginError ??
-          (mcpListResult.succeeded ? null : _mcpListError(mcpListResult)),
+          (mcpListResult.succeeded ? null : _mcpListError(mcpListResult)) ??
+          skillDiscovery.error,
     );
   }
 
@@ -260,19 +481,29 @@ class CodexCapabilityManager {
         '${component.definition.displayName} is not available to toggle',
       );
     }
-    final table = _tableFor(component);
+    final table =
+        component.definition.kind == CodexCapabilityComponentKind.skill
+        ? 'skills.config'
+        : _tableFor(component);
     final file = File(configPath);
     if (!file.existsSync()) {
       throw StateError('Codex config.toml was not found');
     }
 
     final original = file.readAsStringSync();
-    final updated = _configEditor.setBooleanInTable(
-      original,
-      table: table,
-      key: 'enabled',
-      value: enabled,
-    );
+    final updated =
+        component.definition.kind == CodexCapabilityComponentKind.skill
+        ? _configEditor.setSkillEnabled(
+            original,
+            path: _validatedSkillPath(component),
+            value: enabled,
+          )
+        : _configEditor.setBooleanInTable(
+            original,
+            table: table,
+            key: 'enabled',
+            value: enabled,
+          );
     if (updated == original) {
       return CodexCapabilityChange(
         configPath: configPath,
@@ -313,6 +544,38 @@ class CodexCapabilityManager {
       throw StateError('Codex returned an unsupported MCP server identifier');
     }
     return 'mcp_servers.$observedId';
+  }
+
+  String _validatedSkillPath(CodexCapabilityComponentStatus component) {
+    final path = component.observedId!;
+    final normalized = p.normalize(path);
+    if (!p.isAbsolute(normalized) || p.basename(normalized) != 'SKILL.md') {
+      throw StateError('Codex returned an unsupported skill path');
+    }
+    final managed = _skillRoots().any(
+      (root) => p.isWithin(p.normalize(root.path), normalized),
+    );
+    if (!managed || !File(normalized).existsSync()) {
+      throw StateError('Codex skill is outside the managed user folders');
+    }
+    return normalized;
+  }
+
+  CodexCapabilityComponentStatus _skillStatus(
+    CodexCapabilityComponentDefinition definition,
+    Map<String, bool> states,
+    String? discoveryError,
+  ) {
+    final path = definition.skillPath!;
+    return CodexCapabilityComponentStatus(
+      definition: definition,
+      installed: true,
+      enabled: states[_pathKey(path)] ?? true,
+      stateKnown: discoveryError == null,
+      observedId: path,
+      sourcePath: path,
+      error: discoveryError,
+    );
   }
 
   CodexCapabilityComponentStatus _pluginStatus(
@@ -433,6 +696,138 @@ class CodexCapabilityManager {
     return 'Codex plugin discovery failed. Check the Codex CLI and refresh.';
   }
 
+  _SkillDiscovery _discoverSkills() {
+    final records = <_SkillRecord>[];
+    final seenPaths = <String>{};
+    String? error;
+    for (final root in _skillRoots()) {
+      final directory = Directory(root.path);
+      if (!directory.existsSync()) continue;
+      try {
+        for (final entity in directory.listSync(followLinks: false)) {
+          final directoryName = p.basename(entity.path);
+          if (directoryName.startsWith('.')) continue;
+          final skillPath = p.normalize(p.join(entity.path, 'SKILL.md'));
+          final skillFile = File(skillPath);
+          if (!skillFile.existsSync() || !seenPaths.add(_pathKey(skillPath))) {
+            continue;
+          }
+          records.add(_readSkillRecord(skillFile, root.scope));
+        }
+      } on Object {
+        error ??= 'Some user skill folders could not be read.';
+      }
+    }
+
+    final states = <String, bool>{};
+    final config = File(configPath);
+    if (config.existsSync()) {
+      try {
+        final parsed = _configEditor.skillStates(config.readAsStringSync());
+        for (final entry in parsed.entries) {
+          states[_pathKey(entry.key)] = entry.value;
+        }
+      } on Object {
+        error ??=
+            'Codex skill settings in config.toml could not be read safely.';
+      }
+    } else if (records.isNotEmpty) {
+      error ??= 'Codex config.toml was not found.';
+    }
+
+    records.sort((left, right) {
+      final byName = left.name.toLowerCase().compareTo(
+        right.name.toLowerCase(),
+      );
+      return byName != 0 ? byName : left.path.compareTo(right.path);
+    });
+    return _SkillDiscovery(records: records, states: states, error: error);
+  }
+
+  List<_SkillRoot> _skillRoots() {
+    final roots = <_SkillRoot>[];
+    if (_environment.home.isNotEmpty) {
+      roots.add(
+        _SkillRoot(
+          path: p.normalize(p.join(_environment.home, '.agents', 'skills')),
+          scope: 'User · ~/.agents/skills',
+        ),
+      );
+    }
+    if (_environment.codexHome.isNotEmpty) {
+      roots.add(
+        _SkillRoot(
+          path: p.normalize(p.join(_environment.codexHome, 'skills')),
+          scope: 'User · Codex home',
+        ),
+      );
+    }
+    final seen = <String>{};
+    return [
+      for (final root in roots)
+        if (seen.add(_pathKey(root.path))) root,
+    ];
+  }
+
+  _SkillRecord _readSkillRecord(File file, String scope) {
+    var name = p.basename(p.dirname(file.path));
+    var description = 'Standalone Codex skill.';
+    var allowsImplicitInvocation = true;
+    try {
+      if (file.lengthSync() <= 1024 * 1024) {
+        final contents = file.readAsStringSync();
+        final frontmatter = _yamlFrontmatter(contents);
+        final metadata = frontmatter == null ? null : loadYaml(frontmatter);
+        if (metadata is YamlMap) {
+          final parsedName = metadata['name']?.toString().trim();
+          final parsedDescription = metadata['description']?.toString().trim();
+          if (parsedName != null && parsedName.isNotEmpty) name = parsedName;
+          if (parsedDescription != null && parsedDescription.isNotEmpty) {
+            description = parsedDescription.replaceAll(RegExp(r'\s+'), ' ');
+          }
+        }
+      }
+
+      final agentMetadata = File(
+        p.join(p.dirname(file.path), 'agents', 'openai.yaml'),
+      );
+      if (agentMetadata.existsSync() &&
+          agentMetadata.lengthSync() <= 256 * 1024) {
+        final decoded = loadYaml(agentMetadata.readAsStringSync());
+        if (decoded is YamlMap && decoded['policy'] is YamlMap) {
+          final implicit =
+              (decoded['policy'] as YamlMap)['allow_implicit_invocation'];
+          if (implicit is bool) allowsImplicitInvocation = implicit;
+        }
+      }
+    } on Object {
+      description = 'Standalone Codex skill; metadata could not be read.';
+    }
+    return _SkillRecord(
+      path: p.normalize(file.path),
+      name: name,
+      description: description,
+      scope: scope,
+      allowsImplicitInvocation: allowsImplicitInvocation,
+    );
+  }
+
+  String? _yamlFrontmatter(String contents) {
+    final lines = contents.split(RegExp(r'\r?\n'));
+    if (lines.isEmpty || lines.first.trim() != '---') return null;
+    for (var index = 1; index < lines.length; index++) {
+      if (lines[index].trim() == '---') {
+        return lines.sublist(1, index).join('\n');
+      }
+    }
+    return null;
+  }
+
+  String _pathKey(String path) {
+    final normalized = p.normalize(path);
+    return _environment.isWindows ? normalized.toLowerCase() : normalized;
+  }
+
   void _writeAtomically(File target, String contents) {
     final temporary = File(
       '${target.path}.fluttairbar.tmp.$pid.${DateTime.now().microsecondsSinceEpoch}',
@@ -445,6 +840,41 @@ class CodexCapabilityManager {
       if (temporary.existsSync()) temporary.deleteSync();
     }
   }
+}
+
+class _SkillRoot {
+  const _SkillRoot({required this.path, required this.scope});
+
+  final String path;
+  final String scope;
+}
+
+class _SkillRecord {
+  const _SkillRecord({
+    required this.path,
+    required this.name,
+    required this.description,
+    required this.scope,
+    required this.allowsImplicitInvocation,
+  });
+
+  final String path;
+  final String name;
+  final String description;
+  final String scope;
+  final bool allowsImplicitInvocation;
+}
+
+class _SkillDiscovery {
+  const _SkillDiscovery({
+    required this.records,
+    required this.states,
+    required this.error,
+  });
+
+  final List<_SkillRecord> records;
+  final Map<String, bool> states;
+  final String? error;
 }
 
 class _CodexPluginRecord {

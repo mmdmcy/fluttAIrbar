@@ -267,7 +267,7 @@ void main() {
           stdout: '1.0.0\n',
           stderr: '',
         );
-        runner.responses['npm view test-package version time --json'] =
+        runner.responses['$npm view test-package version time --json'] =
             const CommandResult(
               exitCode: 0,
               stdout:
@@ -282,6 +282,72 @@ void main() {
         expect(
           runner.calls,
           contains('$npm install --global --prefix $prefix test-package@2.0.0'),
+        );
+        manager.dispose();
+      } finally {
+        directory.deleteSync(recursive: true);
+      }
+    },
+  );
+
+  test(
+    'npm release checks use the npm sibling of an nvm-style executable',
+    () async {
+      final directory = Directory.systemTemp.createTempSync(
+        'fluttairbar-nvm-prefix-',
+      );
+      final prefix = p.join(directory.path, 'node');
+      final executable = p.join(prefix, 'bin', 'codex');
+      final npm = p.join(prefix, 'bin', Platform.isWindows ? 'npm.cmd' : 'npm');
+      File(executable).createSync(recursive: true);
+      File(npm).createSync(recursive: true);
+
+      try {
+        final runner = _FakeCommandRunner();
+        const definition = HarnessDefinition(
+          id: 'codex',
+          displayName: 'Codex',
+          executable: 'codex',
+          versionArgs: ['--version'],
+          updateArgs: ['update'],
+          updateSource: HarnessUpdateSource.npm,
+          npmPackage: '@openai/codex',
+          updateWithNpmGlobal: true,
+          configs: [],
+        );
+        final manager = HarnessManager(
+          runner: runner,
+          definitions: const [definition],
+          now: () => DateTime.utc(2026, 8, 22),
+        );
+        runner.responses['which codex'] = CommandResult(
+          exitCode: 0,
+          stdout: '$executable\n',
+          stderr: '',
+        );
+        runner.responses['$executable --version'] = const CommandResult(
+          exitCode: 0,
+          stdout: '1.0.0\n',
+          stderr: '',
+        );
+        runner.responses['$npm view @openai/codex version time --json'] =
+            const CommandResult(
+              exitCode: 0,
+              stdout:
+                  '{"version":"2.0.0","time":{"2.0.0":"2026-07-01T00:00:00.000Z"}}',
+              stderr: '',
+            );
+
+        final statuses = await manager.discover();
+
+        expect(statuses.single.updateAvailable, isTrue);
+        expect(
+          runner.calls,
+          contains('$npm view @openai/codex version time --json'),
+        );
+        expect(
+          runner.calls,
+          isNot(contains('npm view @openai/codex version time --json')),
         );
         manager.dispose();
       } finally {

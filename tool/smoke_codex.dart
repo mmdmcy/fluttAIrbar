@@ -1,4 +1,5 @@
-// Headless smoke test: fetch Codex usage + reset credits via OpenCode auth.
+// Headless smoke test: fetch Codex usage + reset credits via the Codex CLI
+// session.
 // ignore_for_file: avoid_print
 
 import 'package:fluttairbar/api/chatgpt_wham.dart';
@@ -10,10 +11,12 @@ Future<void> main() async {
   try {
     final usage = await client.fetchUsage(creds);
     final resets = await client.fetchResetCredits(creds);
-    print('email=${usage.email}');
+    print('authenticated=${usage.email.isNotEmpty}');
     print('plan=${usage.planType}');
     print('source=${usage.authSource}');
-    print('primary=${usage.primary?.usedPercent}% resets ${usage.primary?.resetDescription}');
+    print(
+      'primary=${usage.primary?.usedPercent}% resets ${usage.primary?.resetDescription}',
+    );
     print('secondary=${usage.secondary?.usedPercent}');
     print('resetCredits=${resets.availableCount}');
     for (final c in resets.credits) {
