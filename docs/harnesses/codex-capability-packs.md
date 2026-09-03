@@ -2,7 +2,7 @@
 
 ## Status
 
-Research and implementation notes. Updated 2026-08-26. The app changes only
+Research and implementation notes. Updated 2026-08-31. The app changes only
 the user-level Codex configuration after an explicit user confirmation; it
 does not install, restart, or interrupt Codex automatically.
 
@@ -19,11 +19,12 @@ A capability pack can group:
 - direct local skills, when a stable `SKILL.md` path is available; and
 - one or more MCP servers.
 
-The implemented v1 manages already-installed Codex plugins and MCP servers at
-the user level. It shows each component's state, applies a small targeted
-configuration change, keeps a backup, and tells the user when a new Codex task
-or restart is required. Direct standalone skill entries and plugin installation
-are intentionally deferred.
+The implemented v1 manages standalone user skills, already-installed Codex
+plugins, and MCP servers at the user level. It shows each component's state,
+applies a small targeted configuration change, keeps a backup, and tells the
+user when a new Codex task or restart is required. Plugin installation,
+system-bundled skills, and repository-scoped skill controls are intentionally
+deferred.
 
 This gives the user the intended outcome—many capabilities can remain
 available on disk while only the relevant set is exposed to the model—without
@@ -263,12 +264,16 @@ CapabilityComponent
   trust metadata and warnings
 ```
 
-The current implementation supports `plugin` and `mcp` components. A bundled
-plugin is the stable control for its skills; standalone `skill` components are
-reserved for a later adapter around Codex's `skills.config` entries.
+The current implementation supports `plugin`, `skill`, and `mcp` components. A
+bundled plugin remains the stable control for the skills it owns. Standalone
+user skills are discovered from `$HOME/.agents/skills` and
+`$CODEX_HOME/skills`, then controlled by exact `SKILL.md` path through
+`[[skills.config]]` entries. Hidden system skill folders are excluded.
 
 Current examples:
 
+- **Standalone user skills** — one independently toggleable row per discovered
+  `SKILL.md`, including whether implicit invocation is allowed by its metadata.
 - **Stripe guidance** — the installed Stripe plugin's bundled guidance skills;
   the `stripe` MCP component is separate and independently toggleable.
 - **pstack for Codex** — 44 explicitly-invoked skills ported from the pinned
@@ -290,9 +295,11 @@ The implemented panel provides:
 - a persistent “restart Codex manually” reminder after a write.
 
 Scanning is manual; opening the view does not invoke Codex. The panel discovers
-installed plugins and configured MCP servers, including uncurated resources in
-“Other” groups. It does not expose command stderr, `auth.json`, OAuth stores,
-environment values, or HTTP headers.
+standalone user skills directly from their documented folders, installed
+plugins, and configured MCP servers, including uncurated resources in “Other”
+groups. It reads only skill metadata and invocation policy; it does not expose
+command stderr, skill instructions, `auth.json`, OAuth stores, environment
+values, or HTTP headers.
 
 Avoid calling the action “load” unless the UI also explains that full skill
 instructions are selected by Codex inside a task. “Enable for new Codex
@@ -304,6 +311,8 @@ tasks” is more accurate.
 
 The first implementation now discovers, without writing:
 
+- standalone user skills and their implicit-invocation policy from
+  `$HOME/.agents/skills` and non-system `$CODEX_HOME/skills` entries;
 - installed plugins from `codex plugin list --json`;
 - configured MCP servers from `codex mcp list`/`get`;
 - curated plugin/MCP relationships (Stripe and pstack) plus dynamic “Other”
@@ -314,7 +323,7 @@ capability manager never passes arbitrary user-entered executable or argument
 lists.
 
 The Codex-specific config adapter makes only allowlisted, targeted changes to
-plugin and MCP state. It:
+standalone skill, plugin, and MCP state. It:
 
 1. reads the file before editing and refuses a concurrent change;
 2. preserves unrelated keys and unknown settings;
@@ -335,8 +344,9 @@ in its README; the capability panel only manages already-installed resources.
 ### Deferred — session-aware UX and installation
 
 The UI reports a manual restart/new-task requirement and never terminates an
-active agent. A future adapter may add a confirmed install flow, direct skill
-entries, or a supported app-server/session control if Codex exposes one.
+active agent. A future adapter may add a confirmed install flow,
+repository-scoped and system-skill controls, or a supported app-server/session
+control if Codex exposes one.
 
 ### Deferred — measurement and other harnesses
 
@@ -375,8 +385,9 @@ it previously received.
 
 1. Packs are named groups containing independently toggleable components; the
    pack-level action is a convenience, not an atomic preset.
-2. v1 toggles a bundled plugin as a unit. Per-skill controls remain deferred
-   until stable standalone skill identities and cache behavior are available.
+2. v1 toggles a bundled plugin as a unit and user-installed standalone skills
+   individually by exact `SKILL.md` path. It does not claim that a plugin switch
+   controls a duplicate standalone installation with the same skill name.
 3. “Off” means disabled for future tasks. fluttAIrbar never restarts Codex.
 4. v1 manages installed resources. Pstack installation remains an explicit
    documented CLI action.
@@ -384,8 +395,10 @@ it previously received.
 
 ## Acceptance criteria for v1
 
-- The user can inspect installed Codex plugins and MCP servers without
-  exposing secrets.
+- The user can inspect standalone user skills, installed Codex plugins, and MCP
+  servers without exposing secrets or full skill instructions.
+- Individual and pack-level standalone skill switches write only exact-path
+  `[[skills.config]]` entries.
 - A Stripe skills-only change does not accidentally enable the Stripe MCP.
 - A Stripe MCP change is represented as a separate component.
 - The pstack artifact shows its source, compatibility boundary, skill count,
@@ -394,6 +407,7 @@ it previously received.
   unrelated configuration.
 - External edits are detected instead of overwritten.
 - The UI clearly reports “restart required” and leaves the restart to the user.
-- Tests cover TOML/config fixtures, backup creation, identity mapping, and
-  independent plugin/MCP state.
+- Tests cover TOML/config fixtures, backup creation, identity mapping,
+  independent plugin/MCP state, skill discovery, individual skill switching,
+  and the pack-level disable action.
 - No context-savings claim is made until before/after measurements exist.

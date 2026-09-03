@@ -1,6 +1,6 @@
 # fluttAIrbar
 
-Cross-platform **system-tray** app that shows **ChatGPT / Codex** and **Cursor** usage limits by reusing credentials already on your machine — no in-app login.
+Cross-platform **system-tray** app that shows **ChatGPT / Codex** usage limits by reusing credentials already on your machine — no in-app login. Cursor usage is optional and paused by default.
 
 Inspired by [steipete/CodexBar](https://github.com/steipete/CodexBar) (macOS). fluttAIrbar targets **Linux**, **Windows**, and **macOS** via Flutter.
 
@@ -8,12 +8,12 @@ Inspired by [steipete/CodexBar](https://github.com/steipete/CodexBar) (macOS). f
 
 - Codex / ChatGPT: session (5h) and/or weekly usage meters (weekly-only plans show just Weekly)
 - Banked **limit reset credits** with double-confirm redeem
-- Cursor plan usage % (when local Cursor auth is available)
+- Cursor plan usage % (opt-in from the Settings view; paused by default)
 - System tray icon + tooltip; click to open the panel
 - Supports quiet `--background` launch for desktop login integration
 - Verified allowlisted updates for Pi, Codex, Grok Build, OpenCode, and Vercel Labs fx
 - Redacted configuration overview with one-click file opening
-- Manual Codex capability controls for installed plugins and whole MCP servers
+- Manual Codex capability controls for standalone user skills, installed plugins, and whole MCP servers
 - Dark mode by default (toggle in header)
 - Refresh only on demand from the panel or tray menu
 
@@ -23,7 +23,7 @@ fluttAIrbar never asks for your password. It reads local sessions and calls the 
 
 | Provider | Where tokens come from | API |
 |----------|------------------------|-----|
-| Codex | `~/.local/share/opencode/auth.json` (OpenCode ChatGPT OAuth) **or** `~/.codex/auth.json` (Codex CLI) | `GET https://chatgpt.com/backend-api/wham/usage` |
+| Codex | `~/.codex/auth.json` (Codex CLI session) | `GET https://chatgpt.com/backend-api/wham/usage` |
 | Reset credits | Same OAuth | `GET .../wham/rate-limit-reset-credits` · `POST .../consume` (double-confirm in UI) |
 | Cursor | Cursor app `state.vscdb` (`cursorAuth/accessToken`) or `~/.config/cursor/auth.json` | `GET https://cursor.com/api/usage-summary` |
 
@@ -32,16 +32,15 @@ fluttAIrbar never asks for your password. It reads local sessions and calls the 
 **Codex / ChatGPT**
 
 ```bash
-# Option A — OpenCode (recommended if you already use it)
-opencode providers login   # choose ChatGPT / Codex OAuth, not an API key
-
-# Option B — Codex CLI
+# Codex CLI (fluttAIrbar reuses this session)
 codex login
 ```
 
 **Cursor**
 
-Sign in to the Cursor desktop app (or Cursor CLI) so a local access token exists.
+Cursor polling is paused by default. If you later resubscribe, open the
+`Settings` view from the panel's view menu and enable it there, then sign in to
+the Cursor desktop app (or Cursor CLI) so a local access token exists.
 
 ## Run
 
@@ -122,10 +121,12 @@ harness in [`docs/harnesses/`](docs/harnesses/).
 ### Codex capability packs
 
 Open the panel view menu and choose `Capabilities`, then press `Scan`. The
-panel can independently enable or disable installed Codex plugins and whole
-MCP servers by editing `$CODEX_HOME/config.toml`. Confirm changes only while
-Codex is idle; fluttAIrbar never restarts or interrupts a running CLI. Restart
-Codex manually, then scan again.
+panel can independently enable or disable standalone skills discovered in
+`$HOME/.agents/skills` and `$CODEX_HOME/skills`, installed Codex plugins, and
+whole MCP servers by editing `$CODEX_HOME/config.toml`. System-bundled and
+repository-scoped skills are not included in this user-level view. Confirm
+changes only while Codex is idle; fluttAIrbar never restarts or interrupts a
+running CLI. Restart Codex manually, then scan again.
 
 The repository also includes a first-party Codex port of the official Cursor
 pstack source. Install it deliberately from the local marketplace before

@@ -39,9 +39,9 @@ class CodexCapabilityPanel extends StatelessWidget {
         ),
         const SizedBox(height: 4),
         Text(
-          'Installed packs stay available without being selected for every task. '
-          'Only change these controls while Codex is idle. fluttAIrbar edits '
-          'config.toml and never restarts or interrupts Codex.',
+          'Standalone skills, plugin bundles, and MCP servers stay installed '
+          'while disabled. Only change these controls while Codex is idle. '
+          'fluttAIrbar edits config.toml and never restarts or interrupts Codex.',
           style: theme.textTheme.labelSmall?.copyWith(
             color: theme.colorScheme.onSurface.withValues(alpha: 0.62),
           ),
@@ -53,7 +53,7 @@ class CodexCapabilityPanel extends StatelessWidget {
           Expanded(
             child: Center(
               child: Text(
-                'Press Scan to inspect installed Codex plugins and MCP servers.',
+                'Press Scan to inspect standalone user skills, installed Codex plugins, and MCP servers.',
                 textAlign: TextAlign.center,
                 style: theme.textTheme.bodySmall,
               ),
@@ -167,6 +167,11 @@ class _ComponentTile extends StatelessWidget {
     final details = <String>[
       if (definition.skillCount > 0) '${definition.skillCount} skills',
       if (definition.categorySummary != null) definition.categorySummary!,
+      if (definition.skillScope != null) definition.skillScope!,
+      if (definition.allowsImplicitInvocation != null)
+        definition.allowsImplicitInvocation!
+            ? 'Can activate automatically'
+            : 'Explicit invocation only',
       if (component.version != null) 'v${component.version}',
       component.error ??
           (component.installed
@@ -180,12 +185,11 @@ class _ComponentTile extends StatelessWidget {
       visualDensity: VisualDensity.compact,
       title: Text(definition.displayName),
       subtitle: Text(details, maxLines: 2, overflow: TextOverflow.ellipsis),
-      secondary: Icon(
-        definition.kind == CodexCapabilityComponentKind.mcp
-            ? Icons.hub_outlined
-            : Icons.extension_outlined,
-        size: 19,
-      ),
+      secondary: Icon(switch (definition.kind) {
+        CodexCapabilityComponentKind.plugin => Icons.extension_outlined,
+        CodexCapabilityComponentKind.skill => Icons.auto_awesome_outlined,
+        CodexCapabilityComponentKind.mcp => Icons.hub_outlined,
+      }, size: 19),
       value: component.pendingEnabled ?? component.enabled,
       onChanged: component.toggleable && !store.loading && !store.mutating
           ? (enabled) => _confirmToggle(context, enabled)
@@ -194,12 +198,14 @@ class _ComponentTile extends StatelessWidget {
   }
 
   Future<void> _confirmToggle(BuildContext context, bool enabled) async {
+    final skillPath = component.definition.skillPath;
     final confirmed = await _confirm(
       context,
       title:
           '${enabled ? 'Enable' : 'Disable'} ${component.definition.displayName}?',
-      content:
-          'This edits ${store.snapshot.configPath}. Only do it while Codex is idle. fluttAIrbar will not restart or interrupt Codex. Restart Codex manually after saving the change.',
+      content: skillPath == null
+          ? 'This edits ${store.snapshot.configPath}. Only do it while Codex is idle. fluttAIrbar will not restart or interrupt Codex. Restart Codex manually after saving the change.'
+          : 'This updates the [[skills.config]] entry for $skillPath in ${store.snapshot.configPath}. Only do it while Codex is idle. Restart Codex manually after saving the change.',
     );
     if (confirmed != true || !context.mounted) return;
     await store.setEnabled(component.definition.id, enabled);

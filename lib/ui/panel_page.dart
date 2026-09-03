@@ -7,9 +7,10 @@ import '../providers/theme_store.dart';
 import '../providers/usage_store.dart';
 import 'codex_capability_panel.dart';
 import 'harness_panel.dart';
+import 'usage_settings_panel.dart';
 import 'widgets/usage_meter.dart';
 
-enum _PanelView { usage, harnesses, capabilities }
+enum _PanelView { usage, harnesses, capabilities, settings }
 
 class PanelPage extends StatefulWidget {
   const PanelPage({
@@ -46,26 +47,35 @@ class _PanelPageState extends State<PanelPage> {
         final theme = Theme.of(context);
         final showingHarnesses = _view == _PanelView.harnesses;
         final showingCapabilities = _view == _PanelView.capabilities;
+        final showingSettings = _view == _PanelView.settings;
         final refreshing = showingHarnesses
             ? widget.harnessStore.loading
             : showingCapabilities
             ? widget.codexCapabilityStore.loading
+            : showingSettings
+            ? false
             : widget.store.loading;
         final refreshDisabled = showingHarnesses
             ? widget.harnessStore.loading || widget.harnessStore.updating
             : showingCapabilities
             ? widget.codexCapabilityStore.loading ||
                   widget.codexCapabilityStore.mutating
+            : showingSettings
+            ? true
             : widget.store.loading || widget.store.redeeming;
         final refreshedAt = showingHarnesses
             ? widget.harnessStore.checkedAt
             : showingCapabilities
             ? widget.codexCapabilityStore.checkedAt
+            : showingSettings
+            ? null
             : snap.refreshedAt;
         final statusMessage = showingHarnesses
             ? widget.harnessStore.statusMessage
             : showingCapabilities
             ? widget.codexCapabilityStore.statusMessage
+            : showingSettings
+            ? null
             : widget.store.statusMessage;
         return Scaffold(
           backgroundColor: theme.colorScheme.surface,
@@ -80,10 +90,13 @@ class _PanelPageState extends State<PanelPage> {
                   refreshedAt: refreshedAt,
                   isDark: widget.themeStore.isDark,
                   view: _view,
+                  showRefresh: !showingSettings,
                   onRefresh: showingHarnesses
                       ? widget.harnessStore.refresh
                       : showingCapabilities
                       ? widget.codexCapabilityStore.refresh
+                      : showingSettings
+                      ? () {}
                       : widget.store.refresh,
                   onToggleTheme: widget.themeStore.toggle,
                   onViewChanged: _setView,
@@ -106,6 +119,8 @@ class _PanelPageState extends State<PanelPage> {
                       store: widget.codexCapabilityStore,
                     ),
                   )
+                else if (showingSettings)
+                  Expanded(child: UsageSettingsPanel(store: widget.store))
                 else ...[
                   _CodexBlock(
                     usage: snap.codex,
@@ -113,11 +128,13 @@ class _PanelPageState extends State<PanelPage> {
                     redeeming: widget.store.redeeming,
                     onRedeem: (credit) => _confirmRedeem(context, credit),
                   ),
-                  const SizedBox(height: 10),
-                  _CursorBlock(
-                    usage: snap.cursor,
-                    loading: widget.store.loading,
-                  ),
+                  if (widget.store.cursorEnabled) ...[
+                    const SizedBox(height: 10),
+                    _CursorBlock(
+                      usage: snap.cursor,
+                      loading: widget.store.loading,
+                    ),
+                  ],
                   const Spacer(),
                   Text(
                     'Local auth only · resets need double confirm',
@@ -218,6 +235,7 @@ String _viewLabel(_PanelView view) {
     _PanelView.usage => 'Usage',
     _PanelView.harnesses => 'Harnesses',
     _PanelView.capabilities => 'Capabilities',
+    _PanelView.settings => 'Settings',
   };
 }
 
@@ -226,6 +244,7 @@ IconData _viewIcon(_PanelView view) {
     _PanelView.usage => Icons.data_usage_outlined,
     _PanelView.harnesses => Icons.developer_mode_outlined,
     _PanelView.capabilities => Icons.extension_outlined,
+    _PanelView.settings => Icons.settings_outlined,
   };
 }
 
@@ -236,6 +255,7 @@ class _Header extends StatelessWidget {
     required this.refreshedAt,
     required this.isDark,
     required this.view,
+    required this.showRefresh,
     required this.onRefresh,
     required this.onToggleTheme,
     required this.onViewChanged,
@@ -246,6 +266,7 @@ class _Header extends StatelessWidget {
   final DateTime? refreshedAt;
   final bool isDark;
   final _PanelView view;
+  final bool showRefresh;
   final VoidCallback onRefresh;
   final VoidCallback onToggleTheme;
   final ValueChanged<_PanelView> onViewChanged;
@@ -332,22 +353,23 @@ class _Header extends StatelessWidget {
             size: 20,
           ),
         ),
-        IconButton(
-          visualDensity: VisualDensity.compact,
-          tooltip: view == _PanelView.harnesses
-              ? 'Refresh harness checks'
-              : view == _PanelView.capabilities
-              ? 'Scan Codex capabilities'
-              : 'Refresh usage',
-          onPressed: refreshDisabled ? null : onRefresh,
-          icon: refreshing
-              ? const SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Icon(Icons.refresh, size: 20),
-        ),
+        if (showRefresh)
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            tooltip: view == _PanelView.harnesses
+                ? 'Refresh harness checks'
+                : view == _PanelView.capabilities
+                ? 'Scan Codex capabilities'
+                : 'Refresh usage',
+            onPressed: refreshDisabled ? null : onRefresh,
+            icon: refreshing
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.refresh, size: 20),
+          ),
       ],
     );
   }

@@ -1,4 +1,4 @@
-enum CodexCapabilityComponentKind { plugin, mcp }
+enum CodexCapabilityComponentKind { plugin, skill, mcp }
 
 class CodexCapabilityComponentDefinition {
   const CodexCapabilityComponentDefinition({
@@ -9,6 +9,9 @@ class CodexCapabilityComponentDefinition {
     required this.packId,
     this.pluginName,
     this.mcpServerName,
+    this.skillPath,
+    this.skillScope,
+    this.allowsImplicitInvocation,
     this.skillCount = 0,
     this.categorySummary,
   });
@@ -20,6 +23,9 @@ class CodexCapabilityComponentDefinition {
   final String packId;
   final String? pluginName;
   final String? mcpServerName;
+  final String? skillPath;
+  final String? skillScope;
+  final bool? allowsImplicitInvocation;
   final int skillCount;
   final String? categorySummary;
 }
@@ -51,14 +57,13 @@ class CodexCapabilityCatalog {
         CodexCapabilityComponentDefinition(
           id: 'stripe-plugin',
           packId: 'stripe',
-          displayName: 'Stripe skills',
+          displayName: 'Stripe plugin bundle',
           description:
-              'Stripe-specific guidance and workflows from the plugin.',
+              'Guidance and workflows provided by the installed Stripe plugin.',
           kind: CodexCapabilityComponentKind.plugin,
           pluginName: 'stripe',
-          skillCount: 8,
           categorySummary:
-              'Apps, best practices, Connect, docs, projects, upgrades',
+              'Does not control separately installed standalone skills',
         ),
         CodexCapabilityComponentDefinition(
           id: 'stripe-mcp',
