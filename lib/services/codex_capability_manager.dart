@@ -24,6 +24,18 @@ class CodexCapabilityChange {
   final bool changed;
 }
 
+class CodexCapabilityInstallResult {
+  const CodexCapabilityInstallResult({
+    required this.succeeded,
+    required this.exitCode,
+    this.error,
+  });
+
+  final bool succeeded;
+  final int exitCode;
+  final String? error;
+}
+
 class CodexCapabilityConfigEditor {
   const CodexCapabilityConfigEditor();
 
@@ -369,16 +381,26 @@ class CodexCapabilityManager {
     final dynamicPluginRecords = pluginRecords
         .where((record) => !knownPluginNames.contains(record.name))
         .toList();
+    final curatedSkillNames = CodexCapabilityCatalog.installableSkills
+        .map((skill) => skill.skillName)
+        .toSet();
+    final standaloneSkillRecords = skillDiscovery.records
+        .where(
+          (record) =>
+              !curatedSkillNames.contains(record.name) &&
+              !curatedSkillNames.contains(p.basename(p.dirname(record.path))),
+        )
+        .toList();
     final definitions = <CodexCapabilityPackDefinition>[
       ...CodexCapabilityCatalog.packs,
-      if (skillDiscovery.records.isNotEmpty)
+      if (standaloneSkillRecords.isNotEmpty)
         CodexCapabilityPackDefinition(
           id: 'user-skills',
           displayName: 'Standalone user skills',
           description:
               'Skills discovered in your user-level Codex skill folders. These switches control each exact SKILL.md independently of plugins.',
           components: [
-            for (final record in skillDiscovery.records)
+            for (final record in standaloneSkillRecords)
               CodexCapabilityComponentDefinition(
                 id: 'skill:${record.path}',
                 packId: 'user-skills',
@@ -450,6 +472,7 @@ class CodexCapabilityManager {
           components.add(
             _skillStatus(
               definition,
+              skillDiscovery.records,
               skillDiscovery.states,
               skillDiscovery.error,
             ),
@@ -469,6 +492,43 @@ class CodexCapabilityManager {
           pluginError ??
           (mcpListResult.succeeded ? null : _mcpListError(mcpListResult)) ??
           skillDiscovery.error,
+    );
+  }
+
+  Future<CodexCapabilityInstallResult> installSkill(
+    CodexSkillInstallDefinition definition,
+  ) async {
+    final trusted = CodexCapabilityCatalog.installableSkill(definition.id);
+    if (trusted == null ||
+        trusted.skillName != definition.skillName ||
+        trusted.repositoryUrl != definition.repositoryUrl ||
+        trusted.publisher != definition.publisher) {
+      throw StateError('Codex skill installation is not an approved source');
+    }
+
+    final result = await _runner.run('npx', [
+      '--yes',
+      'skills',
+      'add',
+      trusted.repositoryUrl,
+      '--skill',
+      trusted.skillName,
+      '--global',
+      '--agent',
+      'codex',
+      '--copy',
+      '--yes',
+    ], timeout: const Duration(minutes: 5));
+    if (result.succeeded) {
+      return CodexCapabilityInstallResult(
+        succeeded: true,
+        exitCode: result.exitCode,
+      );
+    }
+    return CodexCapabilityInstallResult(
+      succeeded: false,
+      exitCode: result.exitCode,
+      error: _skillInstallError(result),
     );
   }
 
@@ -563,10 +623,41 @@ class CodexCapabilityManager {
 
   CodexCapabilityComponentStatus _skillStatus(
     CodexCapabilityComponentDefinition definition,
+    List<_SkillRecord> records,
     Map<String, bool> states,
     String? discoveryError,
   ) {
-    final path = definition.skillPath!;
+    _SkillRecord? record;
+    if (definition.skillPath != null) {
+      final expectedPath = _pathKey(definition.skillPath!);
+      for (final candidate in records) {
+        if (_pathKey(candidate.path) == expectedPath) {
+          record = candidate;
+          break;
+        }
+      }
+    } else if (definition.installation != null) {
+      for (final candidate in records) {
+        if (candidate.name == definition.installation!.skillName ||
+            p.basename(p.dirname(candidate.path)) ==
+                definition.installation!.skillName) {
+          record = candidate;
+          break;
+        }
+      }
+    }
+
+    if (record == null) {
+      return CodexCapabilityComponentStatus(
+        definition: definition,
+        installed: false,
+        enabled: false,
+        stateKnown: discoveryError == null,
+        error: discoveryError,
+      );
+    }
+
+    final path = record.path;
     return CodexCapabilityComponentStatus(
       definition: definition,
       installed: true,
@@ -576,6 +667,14 @@ class CodexCapabilityManager {
       sourcePath: path,
       error: discoveryError,
     );
+  }
+
+  String _skillInstallError(CommandResult result) {
+    if (result.exitCode == -1) {
+      return 'npx was not found. Install Node.js/npm or make npx visible to fluttAIrbar.';
+    }
+    if (result.exitCode == -2) return 'Skill installation timed out.';
+    return 'Skill installation failed. Check the network and try again.';
   }
 
   CodexCapabilityComponentStatus _pluginStatus(
