@@ -42,7 +42,9 @@ void main() {
     expect(find.text('widget-skill'), findsOneWidget);
     expect(find.textContaining('Can activate automatically'), findsOneWidget);
 
-    await tester.tap(find.widgetWithText(SwitchListTile, 'widget-skill'));
+    final skillTile = find.widgetWithText(SwitchListTile, 'widget-skill');
+    await tester.scrollUntilVisible(skillTile, 300);
+    await tester.tap(skillTile);
     await _pumpUi(tester);
     expect(find.text('Disable widget-skill?'), findsOneWidget);
     expect(find.textContaining('[[skills.config]]'), findsOneWidget);
@@ -107,6 +109,54 @@ void main() {
       {firstPath: false, secondPath: false},
     );
   });
+
+  testWidgets('curated frontend design skill can be installed from the panel', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1000, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final directory = Directory.systemTemp.createTempSync(
+      'fluttairbar-curated-panel-',
+    );
+    addTearDown(() => directory.deleteSync(recursive: true));
+    final runner = _emptyCapabilityRunner();
+    runner.onRun = (executable, _) {
+      if (executable != 'npx') return null;
+      _writeSkill(directory.path, 'frontend-design');
+      return const CommandResult(exitCode: 0, stdout: '', stderr: '');
+    };
+    final config = File('${directory.path}/config.toml')
+      ..writeAsStringSync('model = "gpt-5"\n');
+    final store = CodexCapabilityStore(
+      manager: CodexCapabilityManager(
+        runner: runner,
+        environment: _environment(directory.path),
+      ),
+    );
+
+    await tester.runAsync(
+      () => store.refresh().timeout(const Duration(seconds: 5)),
+    );
+    await tester.pumpWidget(_testApp(store));
+    await _pumpUi(tester);
+
+    expect(find.text('Curated skills'), findsOneWidget);
+    await tester.tap(find.widgetWithText(OutlinedButton, 'Install'));
+    await _pumpUi(tester);
+    expect(find.text('Install Frontend Design?'), findsOneWidget);
+    expect(find.textContaining('anthropics/skills'), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Install'));
+    await _pumpUi(tester);
+
+    expect(store.restartRequired, isTrue);
+    expect(find.text('Frontend Design'), findsWidgets);
+    expect(find.textContaining('Restart required'), findsWidgets);
+    expect(config.readAsStringSync(), 'model = "gpt-5"\n');
+  });
 }
 
 Widget _testApp(CodexCapabilityStore store) {
@@ -114,7 +164,7 @@ Widget _testApp(CodexCapabilityStore store) {
     home: Scaffold(
       body: SizedBox(
         width: 500,
-        height: 900,
+        height: 1200,
         child: AnimatedBuilder(
           animation: store,
           builder: (context, _) => CodexCapabilityPanel(store: store),
@@ -178,6 +228,7 @@ _FakeCommandRunner _emptyCapabilityRunner() {
 
 class _FakeCommandRunner implements CommandRunner {
   final Map<String, CommandResult> responses = <String, CommandResult>{};
+  CommandResult? Function(String executable, List<String> arguments)? onRun;
 
   @override
   Future<CommandResult> run(
@@ -185,6 +236,8 @@ class _FakeCommandRunner implements CommandRunner {
     List<String> arguments, {
     Duration timeout = const Duration(seconds: 10),
   }) async {
+    final dynamicResult = onRun?.call(executable, arguments);
+    if (dynamicResult != null) return dynamicResult;
     return responses['$executable ${arguments.join(' ')}'] ??
         const CommandResult(exitCode: 1, stdout: '', stderr: 'not configured');
   }

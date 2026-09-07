@@ -238,6 +238,62 @@ void main() {
     },
   );
 
+  test('discovery exposes the approved frontend design installer', () async {
+    final directory = Directory.systemTemp.createTempSync(
+      'fluttairbar-curated-skill-',
+    );
+    try {
+      final manager = CodexCapabilityManager(
+        runner: _emptyCapabilityRunner(),
+        environment: _environment(directory.path),
+      );
+
+      final snapshot = await manager.discover();
+      final component = snapshot
+          .pack('curated-skills')
+          .component('skill:frontend-design');
+
+      expect(component.installed, isFalse);
+      expect(component.stateKnown, isTrue);
+      expect(component.definition.installation, isNotNull);
+      expect(
+        component.definition.installation!.repositoryUrl,
+        'https://github.com/anthropics/skills',
+      );
+    } finally {
+      directory.deleteSync(recursive: true);
+    }
+  });
+
+  test('frontend design installation uses the fixed Codex skill command', () async {
+    final directory = Directory.systemTemp.createTempSync(
+      'fluttairbar-curated-install-',
+    );
+    try {
+      final runner = _emptyCapabilityRunner()
+        ..responses['npx --yes skills add https://github.com/anthropics/skills --skill frontend-design --global --agent codex --copy --yes'] =
+            const CommandResult(exitCode: 0, stdout: '', stderr: '');
+      final manager = CodexCapabilityManager(
+        runner: runner,
+        environment: _environment(directory.path),
+      );
+
+      final result = await manager.installSkill(
+        CodexCapabilityCatalog.frontendDesign,
+      );
+
+      expect(result.succeeded, isTrue);
+      expect(
+        runner.calls,
+        contains(
+          'npx --yes skills add https://github.com/anthropics/skills --skill frontend-design --global --agent codex --copy --yes',
+        ),
+      );
+    } finally {
+      directory.deleteSync(recursive: true);
+    }
+  });
+
   test('setEnabled writes the exact standalone skill path', () async {
     final directory = Directory.systemTemp.createTempSync(
       'fluttairbar-skill-toggle-',
@@ -400,6 +456,7 @@ _FakeCommandRunner _emptyCapabilityRunner() {
 
 class _FakeCommandRunner implements CommandRunner {
   final Map<String, CommandResult> responses = <String, CommandResult>{};
+  final List<String> calls = <String>[];
 
   @override
   Future<CommandResult> run(
@@ -407,7 +464,9 @@ class _FakeCommandRunner implements CommandRunner {
     List<String> arguments, {
     Duration timeout = const Duration(seconds: 10),
   }) async {
-    return responses['$executable ${arguments.join(' ')}'] ??
+    final command = '$executable ${arguments.join(' ')}';
+    calls.add(command);
+    return responses[command] ??
         const CommandResult(exitCode: 1, stdout: '', stderr: 'not configured');
   }
 }

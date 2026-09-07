@@ -27,7 +27,7 @@ class CodexCapabilityPanel extends StatelessWidget {
               ),
             ),
             OutlinedButton.icon(
-              onPressed: store.loading || store.mutating ? null : store.refresh,
+              onPressed: store.busy ? null : store.refresh,
               icon: const Icon(Icons.refresh, size: 16),
               label: const Text('Scan'),
               style: OutlinedButton.styleFrom(
@@ -40,8 +40,9 @@ class CodexCapabilityPanel extends StatelessWidget {
         const SizedBox(height: 4),
         Text(
           'Standalone skills, plugin bundles, and MCP servers stay installed '
-          'while disabled. Only change these controls while Codex is idle. '
-          'fluttAIrbar edits config.toml and never restarts or interrupts Codex.',
+          'while disabled. Curated skills install from fixed sources into your '
+          'user folder. Only change these controls while Codex is idle. '
+          'fluttAIrbar never restarts or interrupts Codex.',
           style: theme.textTheme.labelSmall?.copyWith(
             color: theme.colorScheme.onSurface.withValues(alpha: 0.62),
           ),
@@ -53,7 +54,7 @@ class CodexCapabilityPanel extends StatelessWidget {
           Expanded(
             child: Center(
               child: Text(
-                'Press Scan to inspect standalone user skills, installed Codex plugins, and MCP servers.',
+                'Press Scan to inspect capabilities and see curated skills available to install.',
                 textAlign: TextAlign.center,
                 style: theme.textTheme.bodySmall,
               ),
@@ -110,8 +111,7 @@ class _PackCard extends StatelessWidget {
                 _PackState(pack: pack),
                 const SizedBox(width: 4),
                 TextButton(
-                  onPressed:
-                      toggleable.isEmpty || store.loading || store.mutating
+                  onPressed: toggleable.isEmpty || store.busy
                       ? null
                       : () => _confirmPackToggle(context, targetEnabled),
                   style: TextButton.styleFrom(
@@ -164,6 +164,14 @@ class _ComponentTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final definition = component.definition;
+    final installation = definition.installation;
+    if (installation != null && !component.installed) {
+      return _InstallableSkillTile(
+        store: store,
+        component: component,
+        installation: installation,
+      );
+    }
     final details = <String>[
       if (definition.skillCount > 0) '${definition.skillCount} skills',
       if (definition.categorySummary != null) definition.categorySummary!,
@@ -191,7 +199,7 @@ class _ComponentTile extends StatelessWidget {
         CodexCapabilityComponentKind.mcp => Icons.hub_outlined,
       }, size: 19),
       value: component.pendingEnabled ?? component.enabled,
-      onChanged: component.toggleable && !store.loading && !store.mutating
+      onChanged: component.toggleable && !store.busy
           ? (enabled) => _confirmToggle(context, enabled)
           : null,
     );
@@ -209,6 +217,59 @@ class _ComponentTile extends StatelessWidget {
     );
     if (confirmed != true || !context.mounted) return;
     await store.setEnabled(component.definition.id, enabled);
+  }
+}
+
+class _InstallableSkillTile extends StatelessWidget {
+  const _InstallableSkillTile({
+    required this.store,
+    required this.component,
+    required this.installation,
+  });
+
+  final CodexCapabilityStore store;
+  final CodexCapabilityComponentStatus component;
+  final CodexSkillInstallDefinition installation;
+
+  @override
+  Widget build(BuildContext context) {
+    final details = <String>[
+      installation.publisher,
+      installation.category,
+      component.error ?? installation.description,
+    ].join(' · ');
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      dense: true,
+      visualDensity: VisualDensity.compact,
+      leading: const Icon(Icons.auto_awesome_outlined, size: 19),
+      title: Text(installation.displayName),
+      subtitle: Text(details, maxLines: 2, overflow: TextOverflow.ellipsis),
+      trailing: OutlinedButton(
+        onPressed: component.stateKnown && !store.busy
+            ? () => _confirmInstall(context)
+            : null,
+        style: OutlinedButton.styleFrom(
+          visualDensity: VisualDensity.compact,
+          padding: const EdgeInsets.symmetric(horizontal: 9),
+          minimumSize: const Size(0, 30),
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ),
+        child: Text(store.installing ? 'Installing…' : 'Install'),
+      ),
+    );
+  }
+
+  Future<void> _confirmInstall(BuildContext context) async {
+    final confirmed = await _confirm(
+      context,
+      title: 'Install ${installation.displayName}?',
+      content:
+          'fluttAIrbar will run a fixed Codex skill installer to copy ${installation.skillName} from ${installation.repositoryUrl} into your global user skill folder. Review the skill before use. A new Codex task is required after installation.',
+      confirmLabel: 'Install',
+    );
+    if (confirmed != true || !context.mounted) return;
+    await store.installSkill(component.definition.id);
   }
 }
 
@@ -265,7 +326,7 @@ class _RestartNotice extends StatelessWidget {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              'Saved to config.toml. Restart Codex manually when it is idle, then mark this reminder clear.',
+              'Capability change is ready. Restart Codex manually when it is idle, then mark this reminder clear.',
               style: theme.textTheme.labelSmall,
             ),
           ),
@@ -289,6 +350,7 @@ Future<bool?> _confirm(
   BuildContext context, {
   required String title,
   required String content,
+  String confirmLabel = 'Save',
 }) {
   return showDialog<bool>(
     context: context,
@@ -302,7 +364,7 @@ Future<bool?> _confirm(
         ),
         FilledButton(
           onPressed: () => Navigator.pop(dialogContext, true),
-          child: const Text('Save'),
+          child: Text(confirmLabel),
         ),
       ],
     ),

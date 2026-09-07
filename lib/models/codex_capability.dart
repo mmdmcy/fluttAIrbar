@@ -1,5 +1,25 @@
 enum CodexCapabilityComponentKind { plugin, skill, mcp }
 
+class CodexSkillInstallDefinition {
+  const CodexSkillInstallDefinition({
+    required this.id,
+    required this.skillName,
+    required this.displayName,
+    required this.description,
+    required this.publisher,
+    required this.category,
+    required this.repositoryUrl,
+  });
+
+  final String id;
+  final String skillName;
+  final String displayName;
+  final String description;
+  final String publisher;
+  final String category;
+  final String repositoryUrl;
+}
+
 class CodexCapabilityComponentDefinition {
   const CodexCapabilityComponentDefinition({
     required this.id,
@@ -10,6 +30,7 @@ class CodexCapabilityComponentDefinition {
     this.pluginName,
     this.mcpServerName,
     this.skillPath,
+    this.installation,
     this.skillScope,
     this.allowsImplicitInvocation,
     this.skillCount = 0,
@@ -24,6 +45,7 @@ class CodexCapabilityComponentDefinition {
   final String? pluginName;
   final String? mcpServerName;
   final String? skillPath;
+  final CodexSkillInstallDefinition? installation;
   final String? skillScope;
   final bool? allowsImplicitInvocation;
   final int skillCount;
@@ -46,6 +68,23 @@ class CodexCapabilityPackDefinition {
 
 class CodexCapabilityCatalog {
   const CodexCapabilityCatalog._();
+
+  static const _frontendDesignDescription =
+      'Distinctive, production-grade frontend interfaces with intentional choices for aesthetic direction, typography, color, motion, and composition.';
+
+  static const frontendDesign = CodexSkillInstallDefinition(
+    id: 'frontend-design',
+    skillName: 'frontend-design',
+    displayName: 'Frontend Design',
+    description: _frontendDesignDescription,
+    publisher: 'Anthropic',
+    category: 'Design & UI',
+    repositoryUrl: 'https://github.com/anthropics/skills',
+  );
+
+  static const installableSkills = <CodexSkillInstallDefinition>[
+    frontendDesign,
+  ];
 
   static const packs = <CodexCapabilityPackDefinition>[
     CodexCapabilityPackDefinition(
@@ -93,10 +132,34 @@ class CodexCapabilityCatalog {
         ),
       ],
     ),
+    CodexCapabilityPackDefinition(
+      id: 'curated-skills',
+      displayName: 'Curated skills',
+      description:
+          'Standalone skills from reviewed public sources. Install them into your user-level Codex skill folder, then control them by exact SKILL.md path.',
+      components: [
+        CodexCapabilityComponentDefinition(
+          id: 'skill:frontend-design',
+          packId: 'curated-skills',
+          displayName: 'Frontend Design',
+          description: _frontendDesignDescription,
+          kind: CodexCapabilityComponentKind.skill,
+          installation: frontendDesign,
+          categorySummary: 'Anthropic · Design & UI',
+        ),
+      ],
+    ),
   ];
 
   static CodexCapabilityPackDefinition pack(String id) {
     return packs.firstWhere((pack) => pack.id == id);
+  }
+
+  static CodexSkillInstallDefinition? installableSkill(String id) {
+    for (final skill in installableSkills) {
+      if (skill.id == id) return skill;
+    }
+    return null;
   }
 }
 
