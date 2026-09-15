@@ -14,6 +14,7 @@ Inspired by [steipete/CodexBar](https://github.com/steipete/CodexBar) (macOS). f
 - Verified allowlisted updates for Pi, Codex, Grok Build, OpenCode, and Vercel Labs fx
 - Redacted configuration overview with one-click file opening
 - Manual Codex capability controls for standalone user skills, installed plugins, and whole MCP servers
+- Optional Codex terminal shortcut installer for `codexunsafe` and `codexunsaferesume`
 - Dark mode by default (toggle in header)
 - Refresh only on demand from the panel or tray menu
 
@@ -141,6 +142,25 @@ See [`plugins/pstack/README.md`](plugins/pstack/README.md) and the
 [`Codex capability research notes`](docs/harnesses/codex-capability-packs.md)
 for the port boundary, categories, attribution, and safety model.
 
+### Optional Codex terminal shortcuts
+
+Open the panel view menu, choose `Settings`, and expand `Codex terminal
+shortcuts` if you want the two local shortcuts used by this machine:
+
+```text
+codexunsafe
+codexunsaferesume
+```
+
+The installer is opt-in. It writes executable, shell-independent wrappers to
+`~/.local/bin`, preserves the exact Codex argument profiles, and refuses to
+replace files it did not create. If `~/.local/bin` is not already on the
+current PATH or in the detected Bash, Zsh, or Fish startup file, it adds a
+managed PATH block and tells the user to open a new terminal. Repair and
+Uninstall are available later; Uninstall removes only fluttAIrbar's files and
+its own PATH block. Codex itself, credentials, and other shell configuration
+are not changed apart from that managed PATH block.
+
 ### OpenRouter notes
 
 Grok Build may list multiple Inkling entries: `thinkingmachines/inkling` is
@@ -163,6 +183,7 @@ provider match the command you are actually running.
 - HTTP calls go to OpenAI / Cursor endpoints only, using your existing session.
 - Reset credits are redeemed only after **two** confirmation dialogs; each redeem requires an explicit credit id.
 - Harness scanning reads file presence and redacted provider/model hints; credential contents are never shown.
+- Codex shortcut installation is opt-in and only removes files or PATH blocks it owns.
 - Updates run fixed, reviewed argument lists; GUI early updates require explicit confirmation.
 
 ## Platforms
