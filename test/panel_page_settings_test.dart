@@ -4,10 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:fluttairbar/providers/codex_capability_store.dart';
+import 'package:fluttairbar/providers/codex_shortcut_store.dart';
 import 'package:fluttairbar/providers/harness_store.dart';
 import 'package:fluttairbar/providers/theme_store.dart';
 import 'package:fluttairbar/providers/usage_store.dart';
 import 'package:fluttairbar/services/codex_capability_manager.dart';
+import 'package:fluttairbar/services/codex_shortcut_installer.dart';
 import 'package:fluttairbar/services/harness_config.dart';
 import 'package:fluttairbar/services/harness_preferences.dart';
 import 'package:fluttairbar/services/usage_preferences.dart';
@@ -37,6 +39,15 @@ void main() {
     final capabilityStore = CodexCapabilityStore(
       manager: CodexCapabilityManager(environment: environment),
     );
+    final shortcutStore = CodexShortcutStore(
+      installer: CodexShortcutInstaller(
+        environment: environment,
+        currentPath: '',
+        shell: '/bin/bash',
+        supported: true,
+      ),
+    );
+    addTearDown(shortcutStore.dispose);
 
     await tester.pumpWidget(
       MaterialApp(
@@ -49,6 +60,7 @@ void main() {
               themeStore: ThemeStore(),
               harnessStore: harnessStore,
               codexCapabilityStore: capabilityStore,
+              codexShortcutStore: shortcutStore,
             ),
           ),
         ),
@@ -66,6 +78,8 @@ void main() {
 
     expect(find.text('Usage providers'), findsOneWidget);
     expect(find.text('Cursor usage'), findsOneWidget);
+    expect(find.text('Codex terminal shortcuts'), findsOneWidget);
+    expect(find.text('Install shortcuts'), findsOneWidget);
     expect(find.byTooltip('Refresh usage'), findsNothing);
     expect(
       tester

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/usage_snapshot.dart';
 import '../providers/codex_capability_store.dart';
+import '../providers/codex_shortcut_store.dart';
 import '../providers/harness_store.dart';
 import '../providers/theme_store.dart';
 import '../providers/usage_store.dart';
@@ -19,12 +20,14 @@ class PanelPage extends StatefulWidget {
     required this.themeStore,
     required this.harnessStore,
     required this.codexCapabilityStore,
+    required this.codexShortcutStore,
   });
 
   final UsageStore store;
   final ThemeStore themeStore;
   final HarnessStore harnessStore;
   final CodexCapabilityStore codexCapabilityStore;
+  final CodexShortcutStore codexShortcutStore;
 
   @override
   State<PanelPage> createState() => _PanelPageState();
@@ -41,6 +44,7 @@ class _PanelPageState extends State<PanelPage> {
         widget.themeStore,
         widget.harnessStore,
         widget.codexCapabilityStore,
+        widget.codexShortcutStore,
       ]),
       builder: (context, _) {
         final snap = widget.store.snapshot;
@@ -120,7 +124,12 @@ class _PanelPageState extends State<PanelPage> {
                     ),
                   )
                 else if (showingSettings)
-                  Expanded(child: UsageSettingsPanel(store: widget.store))
+                  Expanded(
+                    child: UsageSettingsPanel(
+                      store: widget.store,
+                      codexShortcutStore: widget.codexShortcutStore,
+                    ),
+                  )
                 else ...[
                   _CodexBlock(
                     usage: snap.codex,
