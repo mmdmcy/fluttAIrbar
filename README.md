@@ -22,6 +22,13 @@ Inspired by [steipete/CodexBar](https://github.com/steipete/CodexBar) (macOS). f
 
 fluttAIrbar never asks for your password. It reads local sessions and calls the same unofficial usage APIs CodexBar uses.
 
+`~/.codex/auth.json` is read-only by default. When the Codex session is older
+than 8 days fluttAIrbar reports it as stale (run `codex` to renew it) instead of
+refreshing the token itself, because rewriting the file while the Codex CLI
+refreshes it too can log the CLI out. If you prefer fluttAIrbar to renew a stale
+session and write it back, enable **Renew stale session in auth.json** in the
+`Settings` view (stored locally, off by default).
+
 | Provider | Where tokens come from | API |
 |----------|------------------------|-----|
 | Codex | `~/.codex/auth.json` (Codex CLI session) | `GET https://chatgpt.com/backend-api/wham/usage` |

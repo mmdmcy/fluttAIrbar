@@ -11,6 +11,7 @@ class OAuthCredentials {
     required this.source,
     this.refreshToken,
     this.expiresAt,
+    this.stale = false,
   });
 
   final String accessToken;
@@ -19,6 +20,10 @@ class OAuthCredentials {
   final String source;
   final String? refreshToken;
   final DateTime? expiresAt;
+
+  /// True when the local session file is older than its owner's refresh
+  /// policy and this app chose not to renew it (read-only mode).
+  final bool stale;
 
   bool get isExpired {
     if (expiresAt == null) return false;
@@ -79,7 +84,8 @@ class OpenCodeAuthStore {
   static const providerKeys = ['openai', 'codex', 'chatgpt', 'opencode'];
 
   static String defaultPath() {
-    final home = Platform.environment['HOME'] ??
+    final home =
+        Platform.environment['HOME'] ??
         Platform.environment['USERPROFILE'] ??
         '';
     final xdg = Platform.environment['XDG_DATA_HOME'];

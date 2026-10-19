@@ -29,6 +29,35 @@ void main() {
     expect(credentials.accessToken, 'codex-cli-token');
   });
 
+  test(
+    'a stale Codex CLI session is reported, not rewritten, by default',
+    () async {
+      final directory = Directory.systemTemp.createTempSync(
+        'fluttairbar-auth-resolution-',
+      );
+      addTearDown(() => directory.deleteSync(recursive: true));
+      final codexPath = '${directory.path}/codex-auth.json';
+      final original = jsonEncode({
+        'tokens': {
+          'access_token': 'codex-cli-token',
+          'refresh_token': 'codex-refresh-token',
+          'account_id': 'codex-account',
+        },
+        'last_refresh': DateTime.now()
+            .toUtc()
+            .subtract(const Duration(days: 30))
+            .toIso8601String(),
+      });
+      File(codexPath).writeAsStringSync(original);
+
+      final credentials = await CodexAuthResolver.resolve(codexPath: codexPath);
+
+      expect(credentials.stale, isTrue);
+      expect(credentials.accessToken, 'codex-cli-token');
+      expect(File(codexPath).readAsStringSync(), original);
+    },
+  );
+
   test('a broken Codex CLI auth file produces an actionable error', () async {
     final directory = Directory.systemTemp.createTempSync(
       'fluttairbar-auth-resolution-',

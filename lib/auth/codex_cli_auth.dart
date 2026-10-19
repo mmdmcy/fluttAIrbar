@@ -7,9 +7,16 @@ import 'package:path/path.dart' as p;
 import 'opencode_auth.dart';
 
 /// Reads Codex CLI OAuth from ~/.codex/auth.json (or $CODEX_HOME/auth.json).
+///
+/// By default the file is only read. A session older than [staleAfterDays]
+/// is reported as stale via [OAuthCredentials.stale]; it is renewed and
+/// written back only when the caller opts in with `refreshAuthFile: true`,
+/// because a concurrent refresh by the Codex CLI itself can otherwise race
+/// and log the CLI out.
 class CodexCliAuthStore {
   static const oauthClientId = 'app_EMoamEEZ73f0CkXaXp7hrann';
   static const tokenUrl = 'https://auth.openai.com/oauth/token';
+  static const staleAfterDays = 8;
 
   static String defaultPath() {
     final codexHome = Platform.environment['CODEX_HOME'];
@@ -26,6 +33,7 @@ class CodexCliAuthStore {
   static Future<OAuthCredentials?> load({
     String? path,
     http.Client? client,
+    bool refreshAuthFile = false,
   }) async {
     final file = File(path ?? defaultPath());
     if (!file.existsSync()) return null;
@@ -50,18 +58,21 @@ class CodexCliAuthStore {
         ? DateTime.tryParse(lastRefreshRaw)
         : null;
 
-    // Refresh when last_refresh older than ~8 days (CodexBar policy).
+    // last_refresh older than ~8 days (CodexBar policy) counts as stale.
     final refreshTokenForRefresh = refresh;
-    if (refreshTokenForRefresh != null &&
+    var stale =
+        refreshTokenForRefresh != null &&
         refreshTokenForRefresh.isNotEmpty &&
         (lastRefresh == null ||
-            DateTime.now().difference(lastRefresh).inDays >= 8)) {
+            DateTime.now().difference(lastRefresh).inDays >= staleAfterDays);
+    if (stale && refreshAuthFile) {
       final httpClient = client ?? http.Client();
       try {
         final refreshed = await _refresh(httpClient, refreshTokenForRefresh);
         access = refreshed.$1;
         refresh = refreshed.$2 ?? refreshTokenForRefresh;
         lastRefresh = DateTime.now().toUtc();
+        stale = false;
         final newTokens = Map<String, dynamic>.from(
           tokens is Map ? Map<String, dynamic>.from(tokens) : {},
         );
@@ -101,6 +112,7 @@ class CodexCliAuthStore {
       source: 'codex-cli',
       refreshToken: refresh,
       expiresAt: null,
+      stale: stale,
     );
   }
 
@@ -139,9 +151,14 @@ class CodexAuthResolver {
   static Future<OAuthCredentials> resolve({
     http.Client? client,
     String? codexPath,
+    bool refreshAuthFile = false,
   }) async {
     try {
-      final cli = await CodexCliAuthStore.load(path: codexPath, client: client);
+      final cli = await CodexCliAuthStore.load(
+        path: codexPath,
+        client: client,
+        refreshAuthFile: refreshAuthFile,
+      );
       if (cli != null) return cli;
     } on AuthException {
       rethrow;

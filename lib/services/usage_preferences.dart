@@ -24,28 +24,41 @@ class UsagePreferences {
 
   /// Cursor is opt-in so an old/stale Cursor session cannot appear by
   /// surprise. The local preference can be switched back on from the UI.
-  bool loadCursorEnabled() {
+  bool loadCursorEnabled() => _load()['cursorEnabled'] == true;
+
+  /// Rewriting ~/.codex/auth.json is opt-in: by default fluttAIrbar only reads
+  /// the Codex CLI session and reports it when stale.
+  bool loadCodexAuthRefreshEnabled() =>
+      _load()['codexAuthRefreshEnabled'] == true;
+
+  void saveCursorEnabled(bool enabled) =>
+      _save({..._load(), 'cursorEnabled': enabled});
+
+  void saveCodexAuthRefreshEnabled(bool enabled) =>
+      _save({..._load(), 'codexAuthRefreshEnabled': enabled});
+
+  Map<String, Object?> _load() {
     try {
       final file = File(filePath);
-      if (!file.existsSync()) return false;
+      if (!file.existsSync()) return {};
       final decoded = jsonDecode(file.readAsStringSync());
-      if (decoded is! Map || decoded['schema'] != _schema) return false;
-      return decoded['cursorEnabled'] == true;
+      if (decoded is! Map || decoded['schema'] != _schema) return {};
+      return Map<String, Object?>.from(decoded);
     } on Object catch (_) {
       // A corrupt or unreadable preference file should not prevent the app
-      // from starting; fall back to the safe disabled default.
-      return false;
+      // from starting; fall back to the safe disabled defaults.
+      return {};
     }
   }
 
-  void saveCursorEnabled(bool enabled) {
+  void _save(Map<String, Object?> values) {
     final file = File(filePath);
     file.parent.createSync(recursive: true);
     final temporary = File('${file.path}.tmp-$pid');
     temporary.writeAsStringSync(
       JsonEncoder.withIndent(
         '  ',
-      ).convert(<String, Object>{'schema': _schema, 'cursorEnabled': enabled}),
+      ).convert(<String, Object?>{...values, 'schema': _schema}),
     );
     try {
       temporary.renameSync(file.path);
