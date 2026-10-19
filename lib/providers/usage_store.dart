@@ -17,6 +17,8 @@ class UsageStore extends ChangeNotifier {
       ownsClient: client == null,
       preferences: resolvedPreferences,
       cursorEnabled: resolvedPreferences.loadCursorEnabled(),
+      codexAuthRefreshEnabled: resolvedPreferences
+          .loadCodexAuthRefreshEnabled(),
     );
   }
 
@@ -25,6 +27,7 @@ class UsageStore extends ChangeNotifier {
     required this._ownsClient,
     required this._preferences,
     required this._cursorEnabled,
+    required this._codexAuthRefreshEnabled,
   });
 
   final http.Client _client;
@@ -35,6 +38,7 @@ class UsageStore extends ChangeNotifier {
   bool _loading = false;
   bool _redeeming = false;
   bool _cursorEnabled;
+  bool _codexAuthRefreshEnabled;
   String? _globalError;
   String? _statusMessage;
 
@@ -42,6 +46,10 @@ class UsageStore extends ChangeNotifier {
   bool get loading => _loading;
   bool get redeeming => _redeeming;
   bool get cursorEnabled => _cursorEnabled;
+
+  /// Whether a stale Codex CLI session may be renewed and written back to
+  /// ~/.codex/auth.json. Off by default: the file is then only read.
+  bool get codexAuthRefreshEnabled => _codexAuthRefreshEnabled;
   String? get globalError => _globalError;
   String? get statusMessage => _statusMessage;
 
@@ -76,6 +84,25 @@ class UsageStore extends ChangeNotifier {
     return true;
   }
 
+  bool setCodexAuthRefreshEnabled(bool enabled) {
+    if (_codexAuthRefreshEnabled == enabled) return true;
+    try {
+      _preferences.saveCodexAuthRefreshEnabled(enabled);
+    } on Object catch (_) {
+      _globalError = 'Could not save the Codex auth refresh preference.';
+      _statusMessage = _globalError;
+      notifyListeners();
+      return false;
+    }
+    _codexAuthRefreshEnabled = enabled;
+    _globalError = null;
+    _statusMessage = enabled
+        ? 'fluttAIrbar may now renew a stale Codex session in auth.json.'
+        : 'Codex auth.json is read-only again.';
+    notifyListeners();
+    return true;
+  }
+
   Future<void> refresh({bool force = false}) async {
     if (_loading && !force) return;
     _loading = true;
@@ -86,7 +113,16 @@ class UsageStore extends ChangeNotifier {
     CursorUsage? cursor;
 
     try {
-      final creds = await CodexAuthResolver.resolve(client: _client);
+      final creds = await CodexAuthResolver.resolve(
+        client: _client,
+        refreshAuthFile: _codexAuthRefreshEnabled,
+      );
+      if (creds.stale) {
+        _statusMessage =
+            'Codex session is older than '
+            '${CodexCliAuthStore.staleAfterDays} days; run `codex` to renew '
+            'it, or allow refresh in Settings.';
+      }
       final wham = ChatGptWhamClient(client: _client);
       codex = await wham.fetchUsage(creds);
       try {
@@ -162,7 +198,10 @@ class UsageStore extends ChangeNotifier {
     _statusMessage = null;
     notifyListeners();
     try {
-      final creds = await CodexAuthResolver.resolve(client: _client);
+      final creds = await CodexAuthResolver.resolve(
+        client: _client,
+        refreshAuthFile: _codexAuthRefreshEnabled,
+      );
       final wham = ChatGptWhamClient(client: _client);
       final result = await wham.consumeResetCredit(creds, creditId: id);
       if (result.ok) {

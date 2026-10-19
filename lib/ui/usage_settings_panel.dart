@@ -73,6 +73,21 @@ class UsageSettingsPanel extends StatelessWidget {
             'fluttAIrbar never starts a login flow.',
             style: theme.textTheme.bodySmall,
           ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Renew stale session in auth.json'),
+            subtitle: Text(
+              store.codexAuthRefreshEnabled
+                  ? 'A session older than 8 days is refreshed and written '
+                        'back. Can race with a refresh by the Codex CLI.'
+                  : 'Off: auth.json is only read. A stale session is '
+                        'reported, never rewritten.',
+            ),
+            value: store.codexAuthRefreshEnabled,
+            onChanged: (enabled) {
+              store.setCodexAuthRefreshEnabled(enabled);
+            },
+          ),
           const Divider(height: 28),
           _CodexShortcutSection(store: codexShortcutStore),
         ],
