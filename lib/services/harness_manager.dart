@@ -28,6 +28,7 @@ abstract interface class CommandRunner {
     String executable,
     List<String> arguments, {
     Duration timeout = const Duration(seconds: 10),
+    Map<String, String> environment = const {},
   });
 }
 
@@ -39,6 +40,7 @@ class LocalCommandRunner implements CommandRunner {
     String executable,
     List<String> arguments, {
     Duration timeout = const Duration(seconds: 10),
+    Map<String, String> environment = const {},
   }) async {
     late Process process;
     try {
@@ -46,7 +48,7 @@ class LocalCommandRunner implements CommandRunner {
         executable,
         arguments,
         runInShell: false,
-        environment: _childEnvironment(),
+        environment: {..._childEnvironment(), ...environment},
       );
     } on Object catch (error) {
       return CommandResult(exitCode: -1, stdout: '', stderr: error.toString());
@@ -201,9 +203,16 @@ class HarnessManager {
     void Function(HarnessUpdateResult result)? onComplete,
   }) async {
     final results = <HarnessUpdateResult>[];
-    for (final status in statuses.where((status) => status.updateCandidate)) {
+    for (final status in statuses.where(
+      (status) => status.updateCandidate || status.daemonSyncCandidate,
+    )) {
       onStart?.call(status);
-      final result = await update(status, allowEarlyRelease: allowEarlyRelease);
+      // A verified npm release supersedes the daemon: npm latest is never
+      // older than what the daemon runs, and the daemon's own updater closes
+      // any residual gap on its next scheduled pass.
+      final result = status.updateCandidate
+          ? await update(status, allowEarlyRelease: allowEarlyRelease)
+          : await syncToDaemon(status);
       results.add(result);
       onComplete?.call(result);
     }
@@ -278,7 +287,35 @@ class HarnessManager {
     }
 
     final executable = status.executablePath!;
-    final result = await _runUpdate(status, executable);
+    // A terminal and a desktop app can resolve different npm installations.
+    // Update every outdated copy discovered on PATH, with its own prefix.
+    final executables = [executable, ...status.additionalExecutablePaths];
+    CommandResult result = const CommandResult(
+      exitCode: 0,
+      stdout: '',
+      stderr: '',
+    );
+    for (final path in executables) {
+      result = await _runUpdate(status, path);
+      if (!result.succeeded) break;
+      final verification = await _runner.run(
+        path,
+        status.definition.versionArgs,
+      );
+      final version = verification.succeeded
+          ? _versionFrom(verification.stdout)
+          : null;
+      if (version == null ||
+          compareVersions(version, status.release!.latestVersion) < 0) {
+        return HarnessUpdateResult(
+          status: status,
+          outcome: HarnessUpdateOutcome.failed,
+          message:
+              'Update command finished, but $path still reports ${version ?? "an unknown version"} (expected ${status.release!.latestVersion})',
+          exitCode: result.exitCode,
+        );
+      }
+    }
     if (result.succeeded) {
       // The updater can replace a symlink or otherwise change which binary is
       // first on PATH. Resolve it again so verification checks the executable
@@ -322,6 +359,178 @@ class HarnessManager {
     );
   }
 
+  /// Installs an exact package version into the npm installation that owns
+  /// [executable]. npm chooses its global prefix from the Node runtime that
+  /// launches it, so the prefix is pinned to the installation we discovered
+  /// and verification afterwards checks that same installation.
+  Future<CommandResult> _runNpmGlobalInstall({
+    required HarnessDefinition definition,
+    required String executable,
+    required String targetVersion,
+  }) {
+    final packageName = definition.npmPackage!;
+    final npmInstallation = _npmInstallationFor(executable);
+    final arguments = <String>['install', '--global'];
+    if (npmInstallation != null) {
+      arguments.addAll(['--prefix', npmInstallation.prefix]);
+    }
+    if (definition.npmMinReleaseAgeExempt) {
+      // Include the CLI's platform binaries, which ship at the same version.
+      // Export explicitly because npm does not pass this option to scripts.
+      arguments.addAll([
+        '--min-release-age-exclude',
+        _releaseAgeExclusions(packageName),
+      ]);
+    }
+    arguments.add('$packageName@$targetVersion');
+    return _runner.run(
+      npmInstallation?.executable ?? 'npm',
+      arguments,
+      timeout: const Duration(minutes: 5),
+      environment: definition.npmMinReleaseAgeExempt
+          ? {
+              'npm_config_min_release_age_exclude': _releaseAgeExclusions(
+                packageName,
+              ),
+            }
+          : const {},
+    );
+  }
+
+  /// Brings every npm installation of a harness on PATH up to the exact
+  /// version its self-updating background daemon already runs. Codex's
+  /// app-server daemon updates itself hourly outside npm, so it regularly
+  /// runs ahead of the installed CLI and makes launches prompt about
+  /// incompatible feature settings. The daemon's version is already on this
+  /// machine, so the npm release-age exemption applies to the sync even when
+  /// the release is younger than the 14-day gate.
+  Future<HarnessUpdateResult> syncToDaemon(HarnessStatus status) async {
+    final definition = status.definition;
+    if (!status.installed ||
+        definition.daemonVersionArgs == null ||
+        !definition.updateWithNpmGlobal ||
+        definition.npmPackage == null) {
+      return HarnessUpdateResult(
+        status: status,
+        outcome: HarnessUpdateOutcome.skipped,
+        message: 'Skipped: daemon sync is not configured for this harness',
+      );
+    }
+
+    final daemonVersion = status.daemonVersion;
+    if (daemonVersion == null) {
+      return HarnessUpdateResult(
+        status: status,
+        outcome: HarnessUpdateOutcome.skipped,
+        message: 'Skipped: background daemon version unavailable',
+      );
+    }
+
+    final currentVersion = status.currentVersion;
+    if (currentVersion == null) {
+      return HarnessUpdateResult(
+        status: status,
+        outcome: HarnessUpdateOutcome.skipped,
+        message: 'Skipped: installed version could not be verified',
+      );
+    }
+
+    final comparison = compareVersions(daemonVersion, currentVersion);
+    if (comparison == 0) {
+      return HarnessUpdateResult(
+        status: status,
+        outcome: HarnessUpdateOutcome.upToDate,
+        message: 'Already matches the background daemon ($daemonVersion)',
+      );
+    }
+    if (comparison < 0) {
+      return HarnessUpdateResult(
+        status: status,
+        outcome: HarnessUpdateOutcome.skipped,
+        message:
+            'Skipped: background daemon $daemonVersion is older than the CLI; '
+            'its scheduled updater will catch up',
+      );
+    }
+
+    // A terminal and a desktop app can resolve different npm installations.
+    // Sync every installation discovered on PATH, with its own prefix.
+    final candidates = <String>[status.executablePath!];
+    final seen = <String>{_resolvedPath(status.executablePath!)};
+    final paths = await _runner.run(
+      Platform.isWindows ? 'where.exe' : 'which',
+      [if (!Platform.isWindows) '-a', definition.executable],
+    );
+    if (paths.succeeded) {
+      for (final path
+          in _clean(paths.stdout)
+              .split('\n')
+              .map((line) => line.trim())
+              .where((line) => line.isNotEmpty)) {
+        if (!seen.add(_resolvedPath(path)) ||
+            _npmInstallationFor(path) == null) {
+          continue;
+        }
+        candidates.add(path);
+      }
+    }
+
+    final outdated = <String>[];
+    for (final path in candidates) {
+      final result = await _runner.run(path, definition.versionArgs);
+      final version = result.succeeded ? _versionFrom(result.stdout) : null;
+      if (version == null || compareVersions(version, daemonVersion) < 0) {
+        outdated.add(path);
+      }
+    }
+    if (outdated.isEmpty) {
+      return HarnessUpdateResult(
+        status: status,
+        outcome: HarnessUpdateOutcome.upToDate,
+        message: 'Already matches the background daemon ($daemonVersion)',
+      );
+    }
+
+    for (final path in outdated) {
+      final result = await _runNpmGlobalInstall(
+        definition: definition,
+        executable: path,
+        targetVersion: daemonVersion,
+      );
+      if (!result.succeeded) {
+        return HarnessUpdateResult(
+          status: status,
+          outcome: HarnessUpdateOutcome.failed,
+          message: _commandFailure(result, prefix: 'Daemon sync'),
+          exitCode: result.exitCode,
+        );
+      }
+    }
+    for (final path in outdated) {
+      final verification = await _runner.run(path, definition.versionArgs);
+      final verifiedVersion = verification.succeeded
+          ? _versionFrom(verification.stdout)
+          : null;
+      if (verifiedVersion == null ||
+          compareVersions(verifiedVersion, daemonVersion) < 0) {
+        final detail = !verification.succeeded
+            ? _commandFailure(verification, prefix: 'version verification')
+            : 'it still reports $verifiedVersion (expected $daemonVersion)';
+        return HarnessUpdateResult(
+          status: status,
+          outcome: HarnessUpdateOutcome.failed,
+          message: 'Sync command finished, but $detail',
+        );
+      }
+    }
+    return HarnessUpdateResult(
+      status: status,
+      outcome: HarnessUpdateOutcome.updated,
+      message: 'Synced to background daemon $daemonVersion',
+      exitCode: 0,
+    );
+  }
+
   Future<CommandResult> _runUpdate(HarnessStatus status, String executable) {
     final definition = status.definition;
     final packageName = definition.npmPackage;
@@ -330,20 +539,10 @@ class HarnessManager {
         definition.updateSource == HarnessUpdateSource.npm &&
         packageName != null &&
         targetVersion != null) {
-      final npmInstallation = _npmInstallationFor(executable);
-      final arguments = <String>['install', '--global'];
-      if (npmInstallation != null) {
-        // npm chooses its global prefix from the Node runtime that launches
-        // it. A desktop-launched app may put another version manager's Node
-        // shim first on PATH, so pin the install prefix to the executable we
-        // discovered and verify afterwards against that same installation.
-        arguments.addAll(['--prefix', npmInstallation.prefix]);
-      }
-      arguments.add('$packageName@$targetVersion');
-      return _runner.run(
-        npmInstallation?.executable ?? 'npm',
-        arguments,
-        timeout: const Duration(minutes: 5),
+      return _runNpmGlobalInstall(
+        definition: definition,
+        executable: executable,
+        targetVersion: targetVersion,
       );
     }
     if (definition.updatePackageInPlace &&
@@ -352,14 +551,34 @@ class HarnessManager {
         targetVersion != null) {
       final prefix = _npmPrefixFor(executable);
       if (prefix != null) {
-        return _runner.run('npm', [
+        final arguments = <String>[
           'install',
           '--prefix',
           prefix,
           '--no-save',
           '--no-package-lock',
-          '$packageName@$targetVersion',
-        ], timeout: const Duration(minutes: 5));
+        ];
+        if (definition.npmMinReleaseAgeExempt) {
+          // OpenCode's postinstall invokes npm to install its platform binary.
+          // Both npm invocations must receive the same scoped exemptions.
+          arguments.addAll([
+            '--min-release-age-exclude',
+            _releaseAgeExclusions(packageName),
+          ]);
+        }
+        arguments.add('$packageName@$targetVersion');
+        return _runner.run(
+          'npm',
+          arguments,
+          timeout: const Duration(minutes: 5),
+          environment: definition.npmMinReleaseAgeExempt
+              ? {
+                  'npm_config_min_release_age_exclude': _releaseAgeExclusions(
+                    packageName,
+                  ),
+                }
+              : const {},
+        );
       }
     }
     return _runner.run(
@@ -368,6 +587,20 @@ class HarnessManager {
       timeout: const Duration(minutes: 5),
     );
   }
+
+  String _resolvedPath(String executable) {
+    try {
+      return File(executable).resolveSymbolicLinksSync();
+    } on Object catch (_) {
+      return executable;
+    }
+  }
+
+  String _releaseAgeExclusions(String packageName) => switch (packageName) {
+    '@openai/codex' => '@openai/codex,@openai/codex-*',
+    'opencode-ai' => 'opencode-ai,opencode-*',
+    _ => packageName,
+  };
 
   _NpmInstallation? _npmInstallationFor(String executable) {
     var resolvedExecutable = executable;
@@ -431,7 +664,7 @@ class HarnessManager {
   }
 
   Future<HarnessStatus> _inspectDefinition(HarnessDefinition definition) async {
-    final executablePath = await _findExecutable(definition.executable);
+    var executablePath = await _findExecutable(definition.executable);
     final configs = _configInspector.inspect(
       definition,
       environment: _environment,
@@ -444,12 +677,33 @@ class HarnessManager {
       executablePath,
       definition.versionArgs,
     );
-    final currentVersion = _versionFrom(versionResult.stdout);
+    var currentVersion = _versionFrom(versionResult.stdout);
     var releaseLookup = const _ReleaseLookup();
     String? checkError;
 
     if (!versionResult.succeeded || currentVersion == null) {
       checkError = _commandFailure(versionResult, prefix: 'Version check');
+    }
+
+    // Informational only: a daemon that cannot be queried never fails the
+    // harness check.
+    String? daemonVersion;
+    final daemonArgs = definition.daemonVersionArgs;
+    if (daemonArgs != null) {
+      final daemonResult = await _runner.run(
+        executablePath,
+        daemonArgs,
+        timeout: const Duration(seconds: 15),
+      );
+      final payload = _decodeJson(daemonResult.stdout);
+      if (payload is Map) {
+        final reported =
+            payload['managedCodexVersion']?.toString() ??
+            payload['appServerVersion']?.toString();
+        if (reported != null && reported.isNotEmpty) {
+          daemonVersion = reported;
+        }
+      }
     }
 
     if (definition.updateSource == HarnessUpdateSource.npm) {
@@ -471,12 +725,54 @@ class HarnessManager {
       }
     }
 
+    final additionalExecutablePaths = <String>[];
+    if (definition.updateWithNpmGlobal &&
+        releaseLookup.release != null &&
+        currentVersion != null &&
+        versionResult.succeeded) {
+      final paths = await _runner.run(
+        Platform.isWindows ? 'where.exe' : 'which',
+        [if (!Platform.isWindows) '-a', definition.executable],
+      );
+      final seen = <String>{_resolvedPath(executablePath)};
+      final outdated = <String>[];
+      if (releaseLookup.release!.isNewerThan(currentVersion)) {
+        outdated.add(executablePath);
+      }
+      if (paths.succeeded) {
+        for (final path
+            in _clean(paths.stdout)
+                .split('\n')
+                .map((line) => line.trim())
+                .where((line) => line.isNotEmpty)) {
+          if (!seen.add(_resolvedPath(path)) ||
+              _npmInstallationFor(path) == null) {
+            continue;
+          }
+          final result = await _runner.run(path, definition.versionArgs);
+          final version = result.succeeded ? _versionFrom(result.stdout) : null;
+          if (version == null || !releaseLookup.release!.isNewerThan(version)) {
+            continue;
+          }
+          outdated.add(path);
+          if (compareVersions(version, currentVersion!) < 0) {
+            currentVersion = version;
+            executablePath = path;
+          }
+        }
+      }
+      additionalExecutablePaths.addAll(
+        outdated.where((path) => path != executablePath),
+      );
+    }
     checkError ??= releaseLookup.error;
     return HarnessStatus(
       definition: definition,
       configs: configs,
       executablePath: executablePath,
+      additionalExecutablePaths: additionalExecutablePaths,
       currentVersion: currentVersion,
+      daemonVersion: daemonVersion,
       release: releaseLookup.release,
       checkError: checkError,
     );

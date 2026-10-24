@@ -402,6 +402,158 @@ void main() {
     },
   );
 
+  test(
+    'Codex finds and updates outdated copies behind a current PATH entry',
+    () async {
+      final directory = Directory.systemTemp.createTempSync(
+        'fluttairbar-copies-',
+      );
+      try {
+        final runner = _FakeCommandRunner();
+        final definition = HarnessCatalog.definitions.singleWhere(
+          (d) => d.id == 'codex',
+        );
+        final executables = <String>[];
+        final npmPaths = <String>[];
+        for (var index = 0; index < 3; index++) {
+          final prefix = p.join(directory.path, 'node$index');
+          final executable = p.join(prefix, 'bin', 'codex');
+          final npm = p.join(
+            prefix,
+            'bin',
+            Platform.isWindows ? 'npm.cmd' : 'npm',
+          );
+          File(executable).createSync(recursive: true);
+          File(npm).createSync(recursive: true);
+          executables.add(executable);
+          npmPaths.add(npm);
+          runner.responses['$executable --version'] = CommandResult(
+            exitCode: 0,
+            stdout: index == 0 ? '2.0.0' : '1.$index.0',
+            stderr: '',
+          );
+        }
+        // Repeated PATH entries must not produce repeated updates.
+        runner.responses['which codex'] = CommandResult(
+          exitCode: 0,
+          stdout: executables.first,
+          stderr: '',
+        );
+        runner.responses['which -a codex'] = CommandResult(
+          exitCode: 0,
+          stdout: [...executables, executables.last].join('\n'),
+          stderr: '',
+        );
+        runner.responses['${npmPaths.first} view @openai/codex version time --json'] =
+            const CommandResult(
+              exitCode: 0,
+              stdout:
+                  '{"version":"2.0.0","time":{"2.0.0":"2026-07-01T00:00:00Z"}}',
+              stderr: '',
+            );
+        final manager = HarnessManager(
+          runner: runner,
+          definitions: [definition],
+          now: () => DateTime.utc(2026, 8, 22),
+        );
+        addTearDown(manager.dispose);
+        final status = (await manager.discover()).single;
+        expect(status.currentVersion, '1.1.0');
+        expect(status.executablePath, executables[1]);
+        expect(status.additionalExecutablePaths, [executables[2]]);
+        expect(status.updateCandidate, isTrue);
+        final result = await manager.update(status);
+        expect(result.outcome, HarnessUpdateOutcome.updated);
+        final installs = runner.calls
+            .where((call) => call.contains(' install '))
+            .toList();
+        expect(installs.length, 2);
+        for (var index = 1; index < 3; index++) {
+          expect(
+            installs,
+            contains(
+              '${npmPaths[index]} install --global --prefix ${p.dirname(p.dirname(executables[index]))} --min-release-age-exclude @openai/codex,@openai/codex-* @openai/codex@2.0.0',
+            ),
+          );
+        }
+      } finally {
+        directory.deleteSync(recursive: true);
+      }
+    },
+    skip: Platform.isWindows,
+  );
+
+  test(
+    'OpenCode exempts its platform binaries in parent and child npm',
+    () async {
+      final directory = Directory.systemTemp.createTempSync(
+        'fluttairbar-opencode-',
+      );
+      try {
+        final executable = p.join(
+          directory.path,
+          'lib',
+          'node_modules',
+          'opencode-ai',
+          'bin',
+          'opencode',
+        );
+        File(executable).createSync(recursive: true);
+        final runner = _FakeCommandRunner();
+        final definition = HarnessCatalog.definitions.singleWhere(
+          (d) => d.id == 'opencode',
+        );
+        final manager = HarnessManager(runner: runner);
+        addTearDown(manager.dispose);
+        final status = HarnessStatus(
+          definition: definition,
+          configs: const [],
+          executablePath: executable,
+          currentVersion: '1.0.0',
+          release: HarnessRelease(
+            latestVersion: '2.0.0',
+            publishedAt: DateTime.utc(2026, 7, 1),
+            source: HarnessUpdateSource.npm,
+          ),
+        );
+        final result = await manager.update(status);
+        expect(result.outcome, HarnessUpdateOutcome.updated);
+        final install = runner.calls.singleWhere(
+          (call) => call.contains(' install '),
+        );
+        expect(
+          install,
+          'npm install --prefix ${p.join(directory.path, "lib")} --no-save --no-package-lock --min-release-age-exclude opencode-ai,opencode-* opencode-ai@2.0.0',
+        );
+        expect(runner.environments[install], {
+          'npm_config_min_release_age_exclude': 'opencode-ai,opencode-*',
+        });
+      } finally {
+        directory.deleteSync(recursive: true);
+      }
+    },
+  );
+
+  test(
+    'local runner passes per-command environment to child processes',
+    () async {
+      final result = await const LocalCommandRunner().run(
+        '/bin/sh',
+        ['-c', 'printenv npm_config_min_release_age_exclude'],
+        environment: {
+          'npm_config_min_release_age_exclude': 'opencode-ai,opencode-*',
+        },
+      );
+      expect(result.exitCode, 0);
+      expect(result.stdout.trim(), 'opencode-ai,opencode-*');
+      expect(
+        Platform.environment['npm_config_min_release_age_exclude'],
+        isNull,
+      );
+    },
+    skip: Platform.isWindows,
+  );
+
   test('fx catalog points at its native settings and credential files', () {
     final definition = HarnessCatalog.definitions.singleWhere(
       (definition) => definition.id == 'fx',
@@ -793,6 +945,307 @@ void main() {
     expect(runner.calls.where((call) => call == '/tmp/test'), isEmpty);
     manager.dispose();
   });
+  test('codex discovery reads the background daemon version', () async {
+    final runner = _FakeCommandRunner();
+    const definition = HarnessDefinition(
+      id: 'codex',
+      displayName: 'Codex',
+      executable: 'codex',
+      versionArgs: ['--version'],
+      updateArgs: ['update'],
+      updateSource: HarnessUpdateSource.npm,
+      npmPackage: '@openai/codex',
+      updateWithNpmGlobal: true,
+      daemonVersionArgs: ['app-server', 'daemon', 'version'],
+      configs: [],
+    );
+    final manager = HarnessManager(
+      runner: runner,
+      definitions: const [definition],
+      now: () => DateTime.utc(2026, 8, 22),
+    );
+    runner.responses['which codex'] = const CommandResult(
+      exitCode: 0,
+      stdout: '/tmp/codex\n',
+      stderr: '',
+    );
+    runner.responses['/tmp/codex --version'] = const CommandResult(
+      exitCode: 0,
+      stdout: '0.159.3\n',
+      stderr: '',
+    );
+    runner.responses['npm view @openai/codex version time --json'] =
+        const CommandResult(
+          exitCode: 0,
+          stdout:
+              '{"version":"0.162.1","time":{"0.162.1":"2026-07-01T00:00:00.000Z"}}',
+          stderr: '',
+        );
+    runner.responses['/tmp/codex app-server daemon version'] =
+        const CommandResult(
+          exitCode: 0,
+          stdout:
+              '{"status":"running","cliVersion":"0.159.3",'
+              '"managedCodexVersion":"0.163.0"}',
+          stderr: '',
+        );
+
+    final status = (await manager.discover()).single;
+
+    expect(status.daemonVersion, '0.163.0');
+    expect(status.daemonAhead, isTrue);
+    expect(status.daemonSyncCandidate, isTrue);
+    manager.dispose();
+  });
+
+  test(
+    'daemon sync installs the daemon version into every npm copy',
+    () async {
+      final directory = Directory.systemTemp.createTempSync(
+        'fluttairbar-daemon-sync-',
+      );
+      try {
+        final runner = _FakeCommandRunner();
+        final definition = HarnessCatalog.definitions.singleWhere(
+          (d) => d.id == 'codex',
+        );
+        final executables = <String>[];
+        final npmPaths = <String>[];
+        for (var index = 0; index < 2; index++) {
+          final prefix = p.join(directory.path, 'node$index');
+          final executable = p.join(prefix, 'bin', 'codex');
+          final npm = p.join(
+            prefix,
+            'bin',
+            Platform.isWindows ? 'npm.cmd' : 'npm',
+          );
+          File(executable).createSync(recursive: true);
+          File(npm).createSync(recursive: true);
+          executables.add(executable);
+          npmPaths.add(npm);
+          runner.responses['$executable --version'] = const CommandResult(
+            exitCode: 0,
+            stdout: '0.159.3\n',
+            stderr: '',
+          );
+        }
+        runner.responses['which codex'] = CommandResult(
+          exitCode: 0,
+          stdout: '${executables.first}\n',
+          stderr: '',
+        );
+        runner.responses['which -a codex'] = CommandResult(
+          exitCode: 0,
+          stdout: executables.join('\n'),
+          stderr: '',
+        );
+        runner.responses['${npmPaths.first} view @openai/codex version time --json'] =
+            const CommandResult(
+              exitCode: 0,
+              stdout:
+                  '{"version":"0.162.1","time":{"0.162.1":"2026-07-01T00:00:00Z"}}',
+              stderr: '',
+            );
+        runner.responses['${executables.first} app-server daemon version'] =
+            const CommandResult(
+              exitCode: 0,
+              stdout: '{"status":"running","managedCodexVersion":"0.162.1"}',
+              stderr: '',
+            );
+        final manager = HarnessManager(
+          runner: runner,
+          definitions: [definition],
+          now: () => DateTime.utc(2026, 8, 22),
+        );
+        addTearDown(manager.dispose);
+        final status = (await manager.discover()).single;
+
+        final result = await manager.syncToDaemon(status);
+
+        expect(result.outcome, HarnessUpdateOutcome.updated);
+        expect(result.message, contains('Synced to background daemon 0.162.1'));
+        final installs = runner.calls
+            .where((call) => call.contains(' install '))
+            .toList();
+        expect(installs.length, 2);
+        for (var index = 0; index < 2; index++) {
+          expect(
+            installs,
+            contains(
+              '${npmPaths[index]} install --global --prefix ${p.dirname(p.dirname(executables[index]))} --min-release-age-exclude @openai/codex,@openai/codex-* @openai/codex@0.162.1',
+            ),
+          );
+        }
+        expect(runner.environments[installs.first], {
+          'npm_config_min_release_age_exclude': '@openai/codex,@openai/codex-*',
+        });
+      } finally {
+        directory.deleteSync(recursive: true);
+      }
+    },
+    skip: Platform.isWindows,
+  );
+
+  test('daemon sync reports up to date when versions already match', () async {
+    final runner = _FakeCommandRunner();
+    const definition = HarnessDefinition(
+      id: 'codex',
+      displayName: 'Codex',
+      executable: 'codex',
+      versionArgs: ['--version'],
+      updateArgs: ['update'],
+      updateSource: HarnessUpdateSource.npm,
+      npmPackage: '@openai/codex',
+      updateWithNpmGlobal: true,
+      daemonVersionArgs: ['app-server', 'daemon', 'version'],
+      configs: [],
+    );
+    final manager = HarnessManager(
+      runner: runner,
+      definitions: const [definition],
+      now: () => DateTime.utc(2026, 8, 22),
+    );
+    runner.responses['which codex'] = const CommandResult(
+      exitCode: 0,
+      stdout: '/tmp/codex\n',
+      stderr: '',
+    );
+    runner.responses['/tmp/codex --version'] = const CommandResult(
+      exitCode: 0,
+      stdout: '2.0.0\n',
+      stderr: '',
+    );
+    runner.responses['/tmp/codex app-server daemon version'] =
+        const CommandResult(
+          exitCode: 0,
+          stdout: '{"status":"running","managedCodexVersion":"2.0.0"}',
+          stderr: '',
+        );
+
+    final status = HarnessStatus(
+      definition: definition,
+      configs: const [],
+      executablePath: '/tmp/codex',
+      currentVersion: '2.0.0',
+      daemonVersion: '2.0.0',
+    );
+
+    final result = await manager.syncToDaemon(status);
+
+    expect(result.outcome, HarnessUpdateOutcome.upToDate);
+    expect(runner.calls.where((call) => call.contains(' install ')), isEmpty);
+    manager.dispose();
+  });
+
+  test(
+    'daemon sync fails when a copy still reports an older version',
+    () async {
+      final runner = _FakeCommandRunner(updatedVersion: '1.0.0');
+      const definition = HarnessDefinition(
+        id: 'codex',
+        displayName: 'Codex',
+        executable: 'codex',
+        versionArgs: ['--version'],
+        updateArgs: ['update'],
+        updateSource: HarnessUpdateSource.npm,
+        npmPackage: '@openai/codex',
+        updateWithNpmGlobal: true,
+        daemonVersionArgs: ['app-server', 'daemon', 'version'],
+        configs: [],
+      );
+      final manager = HarnessManager(
+        runner: runner,
+        definitions: const [definition],
+        now: () => DateTime.utc(2026, 8, 22),
+      );
+      runner.responses['which codex'] = const CommandResult(
+        exitCode: 0,
+        stdout: '/tmp/codex\n',
+        stderr: '',
+      );
+      runner.responses['/tmp/codex --version'] = const CommandResult(
+        exitCode: 0,
+        stdout: '1.0.0\n',
+        stderr: '',
+      );
+      runner.responses['/tmp/codex app-server daemon version'] =
+          const CommandResult(
+            exitCode: 0,
+            stdout: '{"status":"running","managedCodexVersion":"2.0.0"}',
+            stderr: '',
+          );
+
+      final status = HarnessStatus(
+        definition: definition,
+        configs: const [],
+        executablePath: '/tmp/codex',
+        currentVersion: '1.0.0',
+        daemonVersion: '2.0.0',
+      );
+
+      final result = await manager.syncToDaemon(status);
+
+      expect(result.outcome, HarnessUpdateOutcome.failed);
+      expect(result.message, contains('still reports 1.0.0'));
+      manager.dispose();
+    },
+  );
+
+  test('updateAll routes a daemon-only skew to the sync path', () async {
+    final runner = _FakeCommandRunner();
+    const definition = HarnessDefinition(
+      id: 'codex',
+      displayName: 'Codex',
+      executable: 'codex',
+      versionArgs: ['--version'],
+      updateArgs: ['update'],
+      updateSource: HarnessUpdateSource.npm,
+      npmPackage: '@openai/codex',
+      updateWithNpmGlobal: true,
+      daemonVersionArgs: ['app-server', 'daemon', 'version'],
+      configs: [],
+    );
+    final manager = HarnessManager(
+      runner: runner,
+      definitions: const [definition],
+      now: () => DateTime.utc(2026, 8, 22),
+    );
+    runner.responses['which codex'] = const CommandResult(
+      exitCode: 0,
+      stdout: '/tmp/codex\n',
+      stderr: '',
+    );
+    runner.responses['/tmp/codex --version'] = const CommandResult(
+      exitCode: 0,
+      stdout: '1.0.0\n',
+      stderr: '',
+    );
+    runner.responses['npm view @openai/codex version time --json'] =
+        const CommandResult(
+          exitCode: 0,
+          stdout:
+              '{"version":"1.0.0","time":{"1.0.0":"2026-07-01T00:00:00.000Z"}}',
+          stderr: '',
+        );
+    runner.responses['/tmp/codex app-server daemon version'] =
+        const CommandResult(
+          exitCode: 0,
+          stdout: '{"status":"running","managedCodexVersion":"2.0.0"}',
+          stderr: '',
+        );
+
+    final statuses = await manager.discover();
+    final report = await manager.updateAll(statuses);
+
+    expect(statuses.single.updateCandidate, isFalse);
+    expect(report.results.single.outcome, HarnessUpdateOutcome.updated);
+    expect(report.results.single.message, contains('daemon 2.0.0'));
+    expect(
+      runner.calls.where((call) => call.contains(' install ')),
+      isNotEmpty,
+    );
+    manager.dispose();
+  });
 }
 
 class _FakeCommandRunner implements CommandRunner {
@@ -800,6 +1253,7 @@ class _FakeCommandRunner implements CommandRunner {
 
   final Map<String, CommandResult> responses = {};
   final List<String> calls = [];
+  final Map<String, Map<String, String>> environments = {};
   final String updatedVersion;
   bool _updated = false;
 
@@ -808,9 +1262,11 @@ class _FakeCommandRunner implements CommandRunner {
     String executable,
     List<String> arguments, {
     Duration timeout = const Duration(seconds: 10),
+    Map<String, String> environment = const {},
   }) async {
     final key = '$executable ${arguments.join(' ')}';
     calls.add(key);
+    environments[key] = environment;
     final isPackageUpdate =
         arguments.contains('install') &&
         (arguments.contains('--global') || arguments.contains('--prefix'));

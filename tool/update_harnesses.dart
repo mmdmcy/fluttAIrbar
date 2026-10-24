@@ -7,6 +7,7 @@ import 'package:fluttairbar/services/harness_manager.dart';
 
 Future<void> main(List<String> args) async {
   final update = args.contains('--update');
+  final syncDaemon = args.contains('--sync-codex-daemon');
   final jsonOutput = args.contains('--json');
   final only = _onlyIds(args);
   final knownIds = HarnessCatalog.definitions
@@ -28,12 +29,42 @@ Future<void> main(List<String> args) async {
   final manager = HarnessManager(definitions: definitions);
   try {
     final statuses = await manager.discover();
+    if (syncDaemon && !update) {
+      final syncable = statuses.where((status) => status.daemonSyncCandidate);
+      final results = <HarnessUpdateResult>[];
+      for (final status in syncable) {
+        final result = await manager.syncToDaemon(status);
+        results.add(result);
+        if (jsonOutput) {
+          stdout.writeln(jsonEncode(_resultJson(result)));
+        } else {
+          stdout.writeln(
+            '${status.definition.id}: ${result.outcome.name} · ${result.message}',
+          );
+        }
+      }
+      if (!jsonOutput && results.isEmpty) {
+        stdout.writeln(
+          'No harness has a background daemon ahead of its installed CLI.',
+        );
+      }
+      if (results.any(
+        (result) => result.outcome == HarnessUpdateOutcome.failed,
+      )) {
+        exitCode = 1;
+      }
+      return;
+    }
     if (!update) {
       if (jsonOutput) {
         stdout.writeln(jsonEncode(statuses.map(_statusJson).toList()));
       } else {
         _printStatuses(statuses);
-        stdout.writeln('\nCheck only. Add --update after reviewing the list.');
+        stdout.writeln(
+          '\nCheck only. Add --update after reviewing the list, or '
+          '--sync-codex-daemon to sync a CLI that its background daemon has '
+          'outrun.',
+        );
       }
       return;
     }
@@ -85,8 +116,11 @@ void _printStatuses(List<HarnessStatus> statuses) {
     final version = status.currentVersion ?? 'not installed';
     final latest = status.release?.latestVersion;
     final release = latest == null ? '' : ' · latest $latest';
+    final daemon = status.daemonAhead
+        ? ' · daemon ${status.daemonVersion} ahead'
+        : '';
     final error = status.checkError == null ? '' : ' · ${status.checkError}';
-    stdout.writeln('${status.definition.id}: $version$release$error');
+    stdout.writeln('${status.definition.id}: $version$release$daemon$error');
   }
 }
 
@@ -98,6 +132,8 @@ Map<String, Object?> _statusJson(HarnessStatus status) {
     'path': status.executablePath,
     'currentVersion': status.currentVersion,
     'latestVersion': status.release?.latestVersion,
+    'daemonVersion': status.daemonVersion,
+    'daemonAhead': status.daemonAhead,
     'publishedAt': status.release?.publishedAt?.toUtc().toIso8601String(),
     'updateAvailable': status.updateAvailable,
     'ageGateSatisfied': status.ageGateSatisfied(),

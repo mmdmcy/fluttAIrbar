@@ -131,7 +131,7 @@ class HarnessPanel extends StatelessWidget {
   }
 
   bool _hasUpdateAction(HarnessStatus status) {
-    return status.updateCandidate;
+    return status.updateCandidate || status.daemonSyncCandidate;
   }
 
   String _progressText() {
@@ -163,7 +163,9 @@ class HarnessPanel extends StatelessWidget {
         title: const Text('Update AI harnesses?'),
         content: Text(
           'This checks and updates the ${candidates.length} harnesses with '
-          'verified newer releases using their built-in commands. npm and GitHub releases '
+          'verified newer releases using their built-in commands, and syncs '
+          'any CLI that its self-updating background daemon has outrun. npm and '
+          'GitHub releases '
           'still require verified metadata.$earlyNotice No other packages are '
           'changed.',
         ),
@@ -268,7 +270,8 @@ class _HarnessStatusList extends StatelessWidget {
     return ListView(children: children);
   }
 
-  bool _hasUpdateAction(HarnessStatus status) => status.updateCandidate;
+  bool _hasUpdateAction(HarnessStatus status) =>
+      status.updateCandidate || status.daemonSyncCandidate;
 }
 
 class _HarnessSectionHeader extends StatelessWidget {
@@ -457,6 +460,24 @@ class _HarnessCard extends StatelessWidget {
                 ),
               ),
             ),
+          if (status.daemonVersion != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  status.daemonAhead
+                      ? 'Background daemon ${status.daemonVersion} · CLI '
+                            '${status.currentVersion ?? "unknown"} is behind; '
+                            'launches may prompt until synced'
+                      : 'Background daemon ${status.daemonVersion} · matches '
+                            'the installed CLI',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: status.daemonAhead ? const Color(0xFFD97706) : null,
+                  ),
+                ),
+              ),
+            ),
           for (final config in status.configs)
             _ConfigRow(config: config, store: store),
         ],
@@ -485,6 +506,10 @@ class _HarnessCard extends StatelessWidget {
     if (!status.installed) return 'Not installed';
     final current = status.currentVersion ?? 'version unknown';
     if (!status.definition.supportsUpdate) return '$current · update manually';
+    if (status.daemonAhead) {
+      return '$current · background daemon ${status.daemonVersion} runs '
+          'ahead — sync the CLI';
+    }
     final release = status.release;
     if (status.updateAvailable && release != null) {
       if (status.definition.requiresReleaseAge && !status.ageGateSatisfied()) {
@@ -514,6 +539,9 @@ class _HarnessCard extends StatelessWidget {
     }
     if (!status.installed) {
       return theme.colorScheme.onSurface.withValues(alpha: 0.5);
+    }
+    if (status.daemonAhead) {
+      return const Color(0xFFD97706);
     }
     if (status.updateAvailable &&
         status.definition.requiresReleaseAge &&
@@ -600,6 +628,21 @@ class _UpdateButton extends StatelessWidget {
         child: Text('Manual'),
       );
     }
+    if (status.daemonSyncCandidate) {
+      final busy = store.loading || store.updating;
+      return TextButton(
+        onPressed: busy ? null : () => _sync(context),
+        style: TextButton.styleFrom(
+          visualDensity: VisualDensity.compact,
+          padding: const EdgeInsets.symmetric(horizontal: 7),
+          minimumSize: const Size(0, 30),
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ),
+        child: Text(
+          phase == HarnessUpdatePhase.failed ? 'Retry sync' : 'Sync to daemon',
+        ),
+      );
+    }
     if (!status.updateCandidate) return const SizedBox.shrink();
     final blocked =
         status.definition.requiresReleaseAge &&
@@ -660,6 +703,38 @@ class _UpdateButton extends StatelessWidget {
       if (confirmed != true || !context.mounted) return;
     }
     await store.updateOne(status, allowEarlyRelease: allowEarlyRelease);
+  }
+
+  Future<void> _sync(BuildContext context) async {
+    final daemonVersion = status.daemonVersion;
+    if (daemonVersion == null) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(
+          'Sync ${status.definition.displayName} to its background daemon?',
+        ),
+        content: Text(
+          'The background daemon already updated itself to $daemonVersion with '
+          'its own hourly updater, outside npm. This installs that exact '
+          'version into every npm installation on PATH. The 14-day release age '
+          'gate is skipped for this package only, because the identical '
+          'version already runs on this machine.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Sync now'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+    await store.syncToDaemon(status);
   }
 }
 

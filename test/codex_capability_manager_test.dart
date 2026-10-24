@@ -463,6 +463,7 @@ class _FakeCommandRunner implements CommandRunner {
     String executable,
     List<String> arguments, {
     Duration timeout = const Duration(seconds: 10),
+    Map<String, String> environment = const {},
   }) async {
     final command = '$executable ${arguments.join(' ')}';
     calls.add(command);

@@ -29,6 +29,8 @@ class HarnessDefinition {
     this.supportsUpdate = true,
     this.updatePackageInPlace = false,
     this.updateWithNpmGlobal = false,
+    this.npmMinReleaseAgeExempt = false,
+    this.daemonVersionArgs,
   });
 
   final String id;
@@ -46,6 +48,12 @@ class HarnessDefinition {
   final bool supportsUpdate;
   final bool updatePackageInPlace;
   final bool updateWithNpmGlobal;
+  final bool npmMinReleaseAgeExempt;
+
+  /// Arguments that ask a self-updating background companion (such as Codex's
+  /// app-server daemon) for its version. The reply is JSON with the daemon
+  /// version in `managedCodexVersion` or `appServerVersion`.
+  final List<String>? daemonVersionArgs;
 
   bool get requiresReleaseAge =>
       updateSource == HarnessUpdateSource.npm ||
@@ -114,7 +122,9 @@ class HarnessStatus {
     required this.definition,
     required this.configs,
     this.executablePath,
+    this.additionalExecutablePaths = const [],
     this.currentVersion,
+    this.daemonVersion,
     this.release,
     this.checkError,
   });
@@ -122,7 +132,9 @@ class HarnessStatus {
   final HarnessDefinition definition;
   final List<HarnessConfigFile> configs;
   final String? executablePath;
+  final List<String> additionalExecutablePaths;
   final String? currentVersion;
+  final String? daemonVersion;
   final HarnessRelease? release;
   final String? checkError;
 
@@ -139,6 +151,22 @@ class HarnessStatus {
       checkError == null &&
       updateAvailable &&
       (!definition.requiresReleaseAge || release!.publishedAt != null);
+
+  /// True when the self-updating background daemon runs a newer version than
+  /// the installed CLI.
+  bool get daemonAhead =>
+      installed &&
+      currentVersion != null &&
+      daemonVersion != null &&
+      compareVersions(daemonVersion!, currentVersion!) > 0;
+
+  /// True when the daemon is ahead and this harness can be synced to it.
+  bool get daemonSyncCandidate =>
+      daemonAhead &&
+      definition.supportsUpdate &&
+      definition.updateWithNpmGlobal &&
+      definition.npmPackage != null &&
+      definition.daemonVersionArgs != null;
 
   bool ageGateSatisfied({DateTime? now}) {
     if (!definition.requiresReleaseAge) return true;
