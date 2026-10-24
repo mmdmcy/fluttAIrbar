@@ -120,6 +120,23 @@ class HarnessStore extends ChangeNotifier {
     bool allowEarlyRelease = false,
   }) async {
     if (_loading || _updating) return null;
+    return _runSingleOperation(
+      status,
+      () => _manager.update(status, allowEarlyRelease: allowEarlyRelease),
+    );
+  }
+
+  /// Brings the harness's installed CLI up to the version its self-updating
+  /// background daemon already runs.
+  Future<HarnessUpdateResult?> syncToDaemon(HarnessStatus status) async {
+    if (_loading || _updating) return null;
+    return _runSingleOperation(status, () => _manager.syncToDaemon(status));
+  }
+
+  Future<HarnessUpdateResult?> _runSingleOperation(
+    HarnessStatus status,
+    Future<HarnessUpdateResult> Function() operation,
+  ) async {
     _updating = true;
     _statusMessage = null;
     _beginUpdateProgress([status]);
@@ -128,10 +145,7 @@ class HarnessStore extends ChangeNotifier {
     _setUpdatePhase(status, HarnessUpdatePhase.updating);
     notifyListeners();
     try {
-      final result = await _manager.update(
-        status,
-        allowEarlyRelease: allowEarlyRelease,
-      );
+      final result = await operation();
       _updateCompleted = 1;
       _activeUpdateId = null;
       _activeUpdateName = null;

@@ -55,6 +55,8 @@ class HarnessCatalog {
       description:
           'Codex uses config.toml for model, sandbox, and MCP settings.',
       updateWithNpmGlobal: true,
+      npmMinReleaseAgeExempt: true,
+      daemonVersionArgs: ['app-server', 'daemon', 'version'],
     ),
     HarnessDefinition(
       id: 'grok',
@@ -132,6 +134,7 @@ class HarnessCatalog {
       description:
           'OpenCode provider/model configuration lives in opencode.json.',
       updatePackageInPlace: true,
+      npmMinReleaseAgeExempt: true,
     ),
     HarnessDefinition(
       id: 'fx',

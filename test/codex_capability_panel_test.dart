@@ -235,6 +235,7 @@ class _FakeCommandRunner implements CommandRunner {
     String executable,
     List<String> arguments, {
     Duration timeout = const Duration(seconds: 10),
+    Map<String, String> environment = const {},
   }) async {
     final dynamicResult = onRun?.call(executable, arguments);
     if (dynamicResult != null) return dynamicResult;

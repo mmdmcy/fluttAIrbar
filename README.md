@@ -12,6 +12,7 @@ Inspired by [steipete/CodexBar](https://github.com/steipete/CodexBar) (macOS). f
 - System tray icon + tooltip; click to open the panel
 - Supports quiet `--background` launch for desktop login integration
 - Verified allowlisted updates for Pi, Codex, Grok Build, OpenCode, and Vercel Labs fx
+- Detects when Codex's self-updating background daemon outruns the installed CLI and offers a one-click sync to the daemon's exact version
 - Redacted configuration overview with one-click file opening
 - Manual Codex capability controls for standalone user skills, installed plugins, and whole MCP servers
 - Optional Codex terminal shortcut installer for `codexunsafe` and `codexunsaferesume`
@@ -121,6 +122,32 @@ Agent is shown as manual-only until it exposes a reliable update check; the app
 will not guess or run its updater. Ori is a launcher/adapter for other
 harnesses, not a standalone agent runtime. ZCode is shown for configuration
 access but has no safe updater command.
+
+When updating Codex or OpenCode, fluttAIrbar exempts the selected CLI and its
+platform binary packages from npm's configured minimum release age for that
+install, including child npm processes started by the installer. Other
+dependencies retain the age gate; the user's npm configuration is unchanged.
+Codex discovery checks all npm installations visible on PATH and updates each
+outdated copy in its owning prefix, so terminal and tray launches stay current.
+
+#### Background daemon sync
+
+Codex runs a background app-server daemon that updates itself on an hourly
+schedule, outside npm, so it regularly runs a newer version than the
+npm-installed CLI. That skew makes every Codex launch prompt about
+"incompatible feature settings". fluttAIrbar's Codex scan queries
+`codex app-server daemon version` and flags the mismatch. When the daemon is
+ahead, the panel offers `Sync to daemon`, `Update all` includes the sync, and
+the terminal tool accepts a dedicated flag:
+
+```bash
+dart run tool/update_harnesses.dart --sync-codex-daemon
+```
+
+Syncing installs the daemon's exact version into every npm copy of Codex on
+PATH. Because that version already runs on the machine — it was installed by
+Codex's own updater — the sync applies the same scoped release-age exemption
+as a confirmed early update, and only for `@openai/codex`.
 
 The durable local harness context is documented in
 [`docs/harnesses/context.md`](docs/harnesses/context.md), with one runbook per
