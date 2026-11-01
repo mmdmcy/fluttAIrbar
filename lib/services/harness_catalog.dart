@@ -59,6 +59,51 @@ class HarnessCatalog {
       daemonVersionArgs: ['app-server', 'daemon', 'version'],
     ),
     HarnessDefinition(
+      id: 'claude',
+      displayName: 'Claude Code',
+      executable: 'claude',
+      versionArgs: ['--version'],
+      updateArgs: ['update'],
+      // The native install updates itself through Anthropic's own channel;
+      // an npm install of @anthropic-ai/claude-code is detected per machine
+      // and then follows the npm path with the 14-day release-age gate.
+      updateSource: HarnessUpdateSource.officialChannel,
+      releaseChannel: HarnessReleaseChannel(
+        urlTemplate:
+            'https://downloads.claude.ai/claude-code-releases/{channel}',
+        channels: ['latest', 'stable'],
+        settingsPathTemplate: '{claudeDir}/settings.json',
+        settingsKey: 'autoUpdatesChannel',
+      ),
+      npmPackage: '@anthropic-ai/claude-code',
+      configs: [
+        HarnessConfigSpec(
+          label: 'Settings',
+          pathTemplate: '{claudeDir}/settings.json',
+        ),
+        HarnessConfigSpec(
+          label: 'User instructions',
+          pathTemplate: '{claudeDir}/CLAUDE.md',
+        ),
+        HarnessConfigSpec(label: 'Skills', pathTemplate: '{claudeDir}/skills'),
+        HarnessConfigSpec(
+          label: 'Global state',
+          pathTemplate: '{claudeGlobalConfig}',
+          sensitive: true,
+        ),
+        HarnessConfigSpec(
+          label: 'Credentials',
+          pathTemplate: '{claudeDir}/.credentials.json',
+          sensitive: true,
+        ),
+      ],
+      description:
+          'The native install updates itself through Anthropic\'s official '
+          'channel; npm installs follow the npm release-age gate.',
+      updateWithNpmGlobal: true,
+      npmMinReleaseAgeExempt: true,
+    ),
+    HarnessDefinition(
       id: 'grok',
       displayName: 'Grok Build',
       executable: 'grok',

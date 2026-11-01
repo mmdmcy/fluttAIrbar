@@ -187,7 +187,7 @@ class HarnessPanel extends StatelessWidget {
 
   bool _isEarlyUpdate(HarnessStatus status) {
     return _hasUpdateAction(status) &&
-        status.definition.requiresReleaseAge &&
+        status.requiresReleaseAge &&
         !status.ageGateSatisfied();
   }
 }
@@ -511,14 +511,17 @@ class _HarnessCard extends StatelessWidget {
           'ahead — sync the CLI';
     }
     final release = status.release;
+    final channel = status.updateSource == HarnessUpdateSource.officialChannel
+        ? ' · official channel'
+        : '';
     if (status.updateAvailable && release != null) {
-      if (status.definition.requiresReleaseAge && !status.ageGateSatisfied()) {
+      if (status.requiresReleaseAge && !status.ageGateSatisfied()) {
         return '$current → ${release.latestVersion} available · early release '
             '(${release.ageLabel})';
       }
-      return '$current → ${release.latestVersion} available';
+      return '$current → ${release.latestVersion} available$channel';
     }
-    if (release != null) return '$current · current';
+    if (release != null) return '$current · current$channel';
     return '$current · official update channel';
   }
 
@@ -544,7 +547,7 @@ class _HarnessCard extends StatelessWidget {
       return const Color(0xFFD97706);
     }
     if (status.updateAvailable &&
-        status.definition.requiresReleaseAge &&
+        status.requiresReleaseAge &&
         !status.ageGateSatisfied()) {
       return const Color(0xFFD97706);
     }
@@ -645,12 +648,11 @@ class _UpdateButton extends StatelessWidget {
     }
     if (!status.updateCandidate) return const SizedBox.shrink();
     final blocked =
-        status.definition.requiresReleaseAge &&
+        status.requiresReleaseAge &&
         status.updateAvailable &&
         !status.ageGateSatisfied();
     final releaseVerified =
-        !status.definition.requiresReleaseAge ||
-        status.release?.publishedAt != null;
+        !status.requiresReleaseAge || status.release?.publishedAt != null;
     final checkFailed = status.checkError != null;
     final canUpdate =
         status.updateCandidate &&
