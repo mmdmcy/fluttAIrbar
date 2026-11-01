@@ -1,4 +1,19 @@
-// Shared usage models for Codex and Cursor.
+// Shared usage models for Codex, Claude and Cursor.
+
+/// How far a provider's usage could be read. The JSON names are part of the
+/// `fluttairbar.usage.v1` command-line contract.
+enum UsageState {
+  ok('ok'),
+  signedOut('signed-out'),
+  expired('expired'),
+  stale('stale'),
+  paused('paused'),
+  error('error');
+
+  const UsageState(this.jsonName);
+
+  final String jsonName;
+}
 
 class RateWindow {
   const RateWindow({
@@ -7,6 +22,7 @@ class RateWindow {
     this.resetAfterSeconds,
     this.limitWindowSeconds,
     this.label,
+    this.id,
   });
 
   final double usedPercent;
@@ -14,6 +30,9 @@ class RateWindow {
   final int? resetAfterSeconds;
   final int? limitWindowSeconds;
   final String? label;
+
+  /// Stable machine name such as `session`, `weekly` or `weekly-opus`.
+  final String? id;
 
   String get resetDescription {
     DateTime? at = resetAt;
@@ -166,6 +185,7 @@ class CodexUsage {
     this.availableResetCount = 0,
     this.fetchedAt,
     this.error,
+    this.state = UsageState.ok,
   });
 
   final String email;
@@ -183,6 +203,7 @@ class CodexUsage {
   final int availableResetCount;
   final DateTime? fetchedAt;
   final String? error;
+  final UsageState state;
 
   bool get hasError => error != null;
 
@@ -190,6 +211,7 @@ class CodexUsage {
     List<ResetCredit>? resetCredits,
     int? availableResetCount,
     String? error,
+    UsageState? state,
   }) {
     return CodexUsage(
       email: email,
@@ -207,8 +229,42 @@ class CodexUsage {
       availableResetCount: availableResetCount ?? this.availableResetCount,
       fetchedAt: fetchedAt,
       error: error,
+      state: state ?? this.state,
     );
   }
+}
+
+/// Claude Code subscription usage windows, read with the local Claude Code
+/// session. Only the plan name is kept from the credentials.
+class ClaudeUsage {
+  const ClaudeUsage({
+    this.plan,
+    this.windows = const [],
+    this.fetchedAt,
+    this.error,
+    this.state = UsageState.ok,
+  });
+
+  final String? plan;
+  final List<RateWindow> windows;
+  final DateTime? fetchedAt;
+  final String? error;
+  final UsageState state;
+
+  bool get hasError => error != null;
+
+  RateWindow? window(String id) {
+    for (final candidate in windows) {
+      if (candidate.id == id) return candidate;
+    }
+    return null;
+  }
+
+  /// The window shown in the tray: weekly first, like Codex.
+  RateWindow? get headline =>
+      window('weekly') ??
+      window('session') ??
+      (windows.isEmpty ? null : windows.first);
 }
 
 class CursorUsage {
@@ -220,6 +276,7 @@ class CursorUsage {
     this.billingCycleEnd,
     this.fetchedAt,
     this.error,
+    this.state = UsageState.ok,
   });
 
   final String authSource;
@@ -229,6 +286,7 @@ class CursorUsage {
   final DateTime? billingCycleEnd;
   final DateTime? fetchedAt;
   final String? error;
+  final UsageState state;
 
   bool get hasError => error != null;
 }
@@ -236,11 +294,13 @@ class CursorUsage {
 class AppSnapshot {
   const AppSnapshot({
     this.codex,
+    this.claude,
     this.cursor,
     this.refreshedAt,
   });
 
   final CodexUsage? codex;
+  final ClaudeUsage? claude;
   final CursorUsage? cursor;
   final DateTime? refreshedAt;
 
@@ -253,6 +313,13 @@ class AppSnapshot {
       parts.add('$label $left% left');
     } else if (codex?.error != null) {
       parts.add('Codex: —');
+    }
+    final claudeWindow = claude?.headline;
+    if (claudeWindow != null) {
+      final left = (100 - claudeWindow.usedPercent).clamp(0, 100).round();
+      parts.add('Claude $left% left');
+    } else if (claude?.error != null) {
+      parts.add('Claude: —');
     }
     if (cursor?.usedPercent != null) {
       final left = (100 - cursor!.usedPercent!).clamp(0, 100).round();
@@ -268,6 +335,10 @@ class AppSnapshot {
     final w = codex?.secondary ?? codex?.primary;
     if (w != null) {
       return '${(100 - w.usedPercent).clamp(0, 100).round()}%';
+    }
+    final c = claude?.headline;
+    if (c != null) {
+      return '${(100 - c.usedPercent).clamp(0, 100).round()}%';
     }
     final u = cursor?.usedPercent;
     if (u != null) return '${(100 - u).clamp(0, 100).round()}%';

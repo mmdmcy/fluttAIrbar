@@ -31,6 +31,16 @@ class UsagePreferences {
   bool loadCodexAuthRefreshEnabled() =>
       _load()['codexAuthRefreshEnabled'] == true;
 
+  /// Claude has no stored default: null means the user never chose, and the
+  /// caller then polls Claude only when a Claude Code session exists.
+  bool? loadClaudeEnabled() {
+    final value = _load()['claudeEnabled'];
+    return value is bool ? value : null;
+  }
+
+  void saveClaudeEnabled(bool enabled) =>
+      _save({..._load(), 'claudeEnabled': enabled});
+
   void saveCursorEnabled(bool enabled) =>
       _save({..._load(), 'cursorEnabled': enabled});
 

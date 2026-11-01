@@ -31,6 +31,7 @@ void main() {
     final environment = _environment(directory.path);
     final usageStore = UsageStore(
       preferences: UsagePreferences(environment: environment),
+      claudeCredentialsPresent: () => false,
     );
     addTearDown(usageStore.dispose);
     final harnessStore = HarnessStore(
@@ -69,6 +70,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Cursor'), findsNothing);
+    expect(find.text('Claude'), findsNothing);
     expect(find.byTooltip('Usage provider settings'), findsNothing);
 
     await tester.tap(find.byTooltip('Switch view'));
@@ -78,6 +80,15 @@ void main() {
 
     expect(find.text('Usage providers'), findsOneWidget);
     expect(find.text('Cursor usage'), findsOneWidget);
+    expect(find.text('Claude usage'), findsOneWidget);
+    expect(
+      tester
+          .widget<SwitchListTile>(
+            find.widgetWithText(SwitchListTile, 'Claude usage'),
+          )
+          .value,
+      isFalse,
+    );
     expect(find.text('Codex terminal shortcuts'), findsOneWidget);
     expect(find.text('Install shortcuts'), findsOneWidget);
     expect(find.byTooltip('Refresh usage'), findsNothing);

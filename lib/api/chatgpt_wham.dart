@@ -36,10 +36,14 @@ class ChatGptWhamClient {
       headers: _headers(creds),
     );
 
-    if (response.statusCode == 401 || response.statusCode == 403) {
+    if (response.statusCode == 401) {
+      throw SessionExpiredException(
+        'ChatGPT auth failed (401). Re-login via OpenCode or Codex CLI.',
+      );
+    }
+    if (response.statusCode == 403) {
       throw AuthException(
-        'ChatGPT auth failed (${response.statusCode}). '
-        'Re-login via OpenCode or Codex CLI.',
+        'ChatGPT auth failed (403). Re-login via OpenCode or Codex CLI.',
       );
     }
     if (response.statusCode == 429) {
