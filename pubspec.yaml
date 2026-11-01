@@ -1,5 +1,5 @@
 name: fluttairbar
-description: Cross-platform system-tray usage meters for Codex/ChatGPT and Cursor. Reuses local auth — no in-app login.
+description: Cross-platform system-tray usage meters for Codex/ChatGPT, Claude and Cursor, plus AI harness versions. Reuses local auth — no in-app login.
 publish_to: 'none'
 version: 0.1.0+1
 
