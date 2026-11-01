@@ -12,6 +12,27 @@ class HarnessConfigSpec {
   final bool sensitive;
 }
 
+/// An official release channel that answers its latest version as plain text
+/// over HTTPS, such as the channel Claude Code's native installer follows.
+///
+/// [urlTemplate] contains `{channel}`. The channel name is read from one JSON
+/// key in the harness's own settings file and must be one of [channels]; any
+/// other value falls back to the first entry, so a settings file can never
+/// put arbitrary text into the request URL.
+class HarnessReleaseChannel {
+  const HarnessReleaseChannel({
+    required this.urlTemplate,
+    required this.channels,
+    this.settingsPathTemplate,
+    this.settingsKey,
+  });
+
+  final String urlTemplate;
+  final List<String> channels;
+  final String? settingsPathTemplate;
+  final String? settingsKey;
+}
+
 class HarnessDefinition {
   const HarnessDefinition({
     required this.id,
@@ -24,6 +45,7 @@ class HarnessDefinition {
     this.npmPackage,
     this.npmPackages = const [],
     this.releaseRepository,
+    this.releaseChannel,
     this.checkArgs,
     this.description,
     this.supportsUpdate = true,
@@ -43,6 +65,9 @@ class HarnessDefinition {
   final String? npmPackage;
   final List<String> npmPackages;
   final String? releaseRepository;
+
+  /// Release lookup for an official channel without a `--check` command.
+  final HarnessReleaseChannel? releaseChannel;
   final List<String>? checkArgs;
   final String? description;
   final bool supportsUpdate;
@@ -54,10 +79,6 @@ class HarnessDefinition {
   /// app-server daemon) for its version. The reply is JSON with the daemon
   /// version in `managedCodexVersion` or `appServerVersion`.
   final List<String>? daemonVersionArgs;
-
-  bool get requiresReleaseAge =>
-      updateSource == HarnessUpdateSource.npm ||
-      updateSource == HarnessUpdateSource.githubRelease;
 
   List<String> get packageCandidates => [
     if (npmPackage != null && npmPackage!.isNotEmpty) npmPackage!,
@@ -127,6 +148,7 @@ class HarnessStatus {
     this.daemonVersion,
     this.release,
     this.checkError,
+    this.installSource,
   });
 
   final HarnessDefinition definition;
@@ -137,6 +159,18 @@ class HarnessStatus {
   final String? daemonVersion;
   final HarnessRelease? release;
   final String? checkError;
+
+  /// How this particular installation updates, when it differs from the
+  /// definition. Claude Code's native install follows its official channel,
+  /// while an npm install of the same CLI is updated through npm.
+  final HarnessUpdateSource? installSource;
+
+  HarnessUpdateSource get updateSource =>
+      installSource ?? definition.updateSource;
+
+  bool get requiresReleaseAge =>
+      updateSource == HarnessUpdateSource.npm ||
+      updateSource == HarnessUpdateSource.githubRelease;
 
   bool get installed => executablePath != null;
 
@@ -150,7 +184,7 @@ class HarnessStatus {
       definition.supportsUpdate &&
       checkError == null &&
       updateAvailable &&
-      (!definition.requiresReleaseAge || release!.publishedAt != null);
+      (!requiresReleaseAge || release!.publishedAt != null);
 
   /// True when the self-updating background daemon runs a newer version than
   /// the installed CLI.
@@ -169,7 +203,7 @@ class HarnessStatus {
       definition.daemonVersionArgs != null;
 
   bool ageGateSatisfied({DateTime? now}) {
-    if (!definition.requiresReleaseAge) return true;
+    if (!requiresReleaseAge) return true;
     return release?.ageGateSatisfied(now: now) ?? false;
   }
 }

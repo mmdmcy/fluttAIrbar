@@ -263,7 +263,7 @@ class HarnessManager {
       );
     }
 
-    if (status.definition.requiresReleaseAge) {
+    if (status.requiresReleaseAge) {
       final release = status.release!;
       if (release.publishedAt == null) {
         return HarnessUpdateResult(
@@ -536,7 +536,7 @@ class HarnessManager {
     final packageName = definition.npmPackage;
     final targetVersion = status.release?.latestVersion;
     if (definition.updateWithNpmGlobal &&
-        definition.updateSource == HarnessUpdateSource.npm &&
+        status.updateSource == HarnessUpdateSource.npm &&
         packageName != null &&
         targetVersion != null) {
       return _runNpmGlobalInstall(
@@ -546,7 +546,7 @@ class HarnessManager {
       );
     }
     if (definition.updatePackageInPlace &&
-        definition.updateSource == HarnessUpdateSource.npm &&
+        status.updateSource == HarnessUpdateSource.npm &&
         packageName != null &&
         targetVersion != null) {
       final prefix = _npmPrefixFor(executable);
@@ -599,6 +599,8 @@ class HarnessManager {
   String _releaseAgeExclusions(String packageName) => switch (packageName) {
     '@openai/codex' => '@openai/codex,@openai/codex-*',
     'opencode-ai' => 'opencode-ai,opencode-*',
+    '@anthropic-ai/claude-code' =>
+      '@anthropic-ai/claude-code,@anthropic-ai/claude-code-*',
     _ => packageName,
   };
 
@@ -706,13 +708,25 @@ class HarnessManager {
       }
     }
 
-    if (definition.updateSource == HarnessUpdateSource.npm) {
+    // A harness with its own official channel can also be installed through
+    // npm (Claude Code). That copy is then updated, and age-gated, as npm.
+    final installSource =
+        definition.updateSource == HarnessUpdateSource.officialChannel &&
+            definition.npmPackage != null &&
+            _npmPrefixFor(executablePath) != null
+        ? HarnessUpdateSource.npm
+        : null;
+    final updateSource = installSource ?? definition.updateSource;
+
+    if (updateSource == HarnessUpdateSource.npm) {
       releaseLookup = await _lookupNpmRelease(
         definition,
         executablePath: executablePath,
       );
-    } else if (definition.updateSource == HarnessUpdateSource.githubRelease) {
+    } else if (updateSource == HarnessUpdateSource.githubRelease) {
       releaseLookup = await _lookupGithubRelease(definition);
+    } else if (definition.releaseChannel != null) {
+      releaseLookup = await _lookupChannelRelease(definition.releaseChannel!);
     } else if (definition.checkArgs != null) {
       final checkResult = await _runner.run(
         executablePath,
@@ -727,6 +741,7 @@ class HarnessManager {
 
     final additionalExecutablePaths = <String>[];
     if (definition.updateWithNpmGlobal &&
+        updateSource == HarnessUpdateSource.npm &&
         releaseLookup.release != null &&
         currentVersion != null &&
         versionResult.succeeded) {
@@ -775,6 +790,7 @@ class HarnessManager {
       daemonVersion: daemonVersion,
       release: releaseLookup.release,
       checkError: checkError,
+      installSource: installSource,
     );
   }
 
@@ -898,6 +914,61 @@ class HarnessManager {
       );
     } on Object catch (_) {
       return const _ReleaseLookup(error: 'GitHub release check unavailable');
+    }
+  }
+
+  /// Reads the latest version from an official channel that answers plain
+  /// text, for the channel the harness's own settings select.
+  Future<_ReleaseLookup> _lookupChannelRelease(
+    HarnessReleaseChannel channel,
+  ) async {
+    final name = _selectedChannel(channel);
+    try {
+      final response = await _client
+          .get(
+            Uri.parse(channel.urlTemplate.replaceAll('{channel}', name)),
+            headers: {'User-Agent': 'fluttAIrbar/1.0'},
+          )
+          .timeout(const Duration(seconds: 15));
+      if (response.statusCode != 200) {
+        return _ReleaseLookup(
+          error: 'Official channel check failed (${response.statusCode})',
+        );
+      }
+      final version = _firstLine(response.body);
+      if (version == null || !RegExp(r'^v?[0-9]+\.[0-9]+').hasMatch(version)) {
+        return const _ReleaseLookup(
+          error: 'Official channel returned no version',
+        );
+      }
+      return _ReleaseLookup(
+        release: HarnessRelease(
+          latestVersion: version,
+          source: HarnessUpdateSource.officialChannel,
+        ),
+      );
+    } on Object catch (_) {
+      return const _ReleaseLookup(error: 'Official channel check unavailable');
+    }
+  }
+
+  String _selectedChannel(HarnessReleaseChannel channel) {
+    final fallback = channel.channels.first;
+    final template = channel.settingsPathTemplate;
+    final key = channel.settingsKey;
+    if (template == null || key == null) return fallback;
+    final path = _environment.resolve(template);
+    if (path == null) return fallback;
+    try {
+      final file = File(path);
+      if (!file.existsSync()) return fallback;
+      final payload = _decodeJson(file.readAsStringSync());
+      final value = payload is Map ? payload[key] : null;
+      return value is String && channel.channels.contains(value)
+          ? value
+          : fallback;
+    } on Object catch (_) {
+      return fallback;
     }
   }
 

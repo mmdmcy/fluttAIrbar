@@ -16,6 +16,7 @@ class HarnessEnvironment {
     required this.localAppData,
     required this.isWindows,
     required this.isMacOS,
+    this.claudeConfigDirectory,
   });
 
   factory HarnessEnvironment.system() {
@@ -51,6 +52,7 @@ class HarnessEnvironment {
           localAppData ?? (windows ? p.join(home, 'AppData', 'Local') : null),
       isWindows: windows,
       isMacOS: Platform.isMacOS,
+      claudeConfigDirectory: variables['CLAUDE_CONFIG_DIR'],
     );
   }
 
@@ -65,6 +67,24 @@ class HarnessEnvironment {
   final bool isWindows;
   final bool isMacOS;
 
+  /// `CLAUDE_CONFIG_DIR` when set. Claude Code then keeps both its config
+  /// directory and its `.claude.json` global state inside that directory.
+  final String? claudeConfigDirectory;
+
+  String? get claudeDirectory {
+    final custom = claudeConfigDirectory;
+    if (custom != null && custom.isNotEmpty) return custom;
+    return home.isEmpty ? null : p.join(home, '.claude');
+  }
+
+  String? get claudeGlobalConfigPath {
+    final custom = claudeConfigDirectory;
+    if (custom != null && custom.isNotEmpty) {
+      return p.join(custom, '.claude.json');
+    }
+    return home.isEmpty ? null : p.join(home, '.claude.json');
+  }
+
   String? resolve(String template) {
     final values = <String, String?>{
       'home': home,
@@ -75,6 +95,8 @@ class HarnessEnvironment {
       'grokConfigPath': grokConfigPath,
       'appData': appData,
       'localAppData': localAppData,
+      'claudeDir': claudeDirectory,
+      'claudeGlobalConfig': claudeGlobalConfigPath,
     };
     var result = template;
     for (final entry in values.entries) {
@@ -112,6 +134,16 @@ class HarnessConfigInspector {
   }
 
   HarnessConfigFile _inspectFile(HarnessConfigSpec spec, String path) {
+    final directory = Directory(path);
+    if (directory.existsSync()) {
+      return HarnessConfigFile(
+        label: spec.label,
+        path: path,
+        sensitive: spec.sensitive,
+        exists: true,
+        summary: _summarizeDirectory(directory),
+      );
+    }
     final file = File(path);
     final exists = file.existsSync();
     if (!exists) {
@@ -158,6 +190,20 @@ class HarnessConfigInspector {
         exists: true,
         summary: 'Present · could not inspect',
       );
+    }
+  }
+
+  /// Counts entries without reading them, so a skills folder is described by
+  /// size only.
+  String _summarizeDirectory(Directory directory) {
+    try {
+      final count = directory
+          .listSync(followLinks: false)
+          .where((entry) => !p.basename(entry.path).startsWith('.'))
+          .length;
+      return 'Folder · $count ${count == 1 ? 'entry' : 'entries'}';
+    } on Object catch (_) {
+      return 'Folder · could not list';
     }
   }
 
@@ -222,7 +268,7 @@ class ConfigOpener {
   const ConfigOpener();
 
   Future<void> open(String path) async {
-    if (!File(path).existsSync()) {
+    if (FileSystemEntity.typeSync(path) == FileSystemEntityType.notFound) {
       throw StateError('Config file no longer exists');
     }
     final executable = Platform.isWindows
