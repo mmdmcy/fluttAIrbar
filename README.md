@@ -1,23 +1,25 @@
 # fluttAIrbar
 
-Cross-platform **system-tray** app that shows **ChatGPT / Codex** usage limits by reusing credentials already on your machine — no in-app login. Cursor usage is optional and paused by default.
+Cross-platform **system-tray** app for everything AI on a device: **ChatGPT / Codex** and **Claude** usage limits, read by reusing the sessions already on your machine (no in-app login), plus the versions and safe updates of the AI command-line tools installed there. Cursor usage is optional and paused by default. The same features are available headless through [`fluttairbar-cli`](#command-line).
 
 Inspired by [steipete/CodexBar](https://github.com/steipete/CodexBar) (macOS). fluttAIrbar targets **Linux**, **Windows**, and **macOS** via Flutter.
 
 ## Features (v0.1)
 
 - Codex / ChatGPT: session (5h) and/or weekly usage meters (weekly-only plans show just Weekly)
+- Claude (Claude Code subscription): 5-hour, weekly and model-specific weekly meters, on by default when a Claude Code session exists
 - Banked **limit reset credits** with double-confirm redeem
 - Cursor plan usage % (opt-in from the Settings view; paused by default)
 - System tray icon + tooltip; click to open the panel
 - Supports quiet `--background` launch for desktop login integration
-- Verified allowlisted updates for Pi, Codex, Grok Build, OpenCode, and Vercel Labs fx
+- Verified allowlisted updates for Pi, Codex, Claude Code, Grok Build, OpenCode, and Vercel Labs fx
 - Detects when Codex's self-updating background daemon outruns the installed CLI and offers a one-click sync to the daemon's exact version
 - Redacted configuration overview with one-click file opening
 - Manual Codex capability controls for standalone user skills, installed plugins, and whole MCP servers
 - Optional Codex terminal shortcut installer for `codexunsafe` and `codexunsaferesume`
 - Dark mode by default (toggle in header)
 - Refresh only on demand from the panel or tray menu
+- `fluttairbar-cli`: harness check and usage meters as text or JSON for scripts and fleet tools
 
 ## How auth works (no login here)
 
@@ -30,10 +32,17 @@ refreshes it too can log the CLI out. If you prefer fluttAIrbar to renew a stale
 session and write it back, enable **Renew stale session in auth.json** in the
 `Settings` view (stored locally, off by default).
 
+The Claude Code session is always read-only. fluttAIrbar never refreshes the
+Claude token or rewrites the credentials; when the stored access token has
+expired it reports `expired: run claude to renew it`, and starting `claude`
+renews it. Claude usage is polled by default only when a Claude Code session
+exists, and can be paused or enabled in the `Settings` view.
+
 | Provider | Where tokens come from | API |
 |----------|------------------------|-----|
 | Codex | `~/.codex/auth.json` (Codex CLI session) | `GET https://chatgpt.com/backend-api/wham/usage` |
 | Reset credits | Same OAuth | `GET .../wham/rate-limit-reset-credits` · `POST .../consume` (double-confirm in UI) |
+| Claude | Claude Code session: `~/.claude/.credentials.json` (`$CLAUDE_CONFIG_DIR/.credentials.json` when set) on Linux and Windows, Keychain item `Claude Code-credentials` on macOS (falls back to the file) | `GET https://api.anthropic.com/api/oauth/usage` with `anthropic-beta: oauth-2025-04-20`, the endpoint Claude Code's `/usage` view uses |
 | Cursor | Cursor app `state.vscdb` (`cursorAuth/accessToken`) or `~/.config/cursor/auth.json` | `GET https://cursor.com/api/usage-summary` |
 
 ### Prerequisites
@@ -44,6 +53,18 @@ session and write it back, enable **Renew stale session in auth.json** in the
 # Codex CLI (fluttAIrbar reuses this session)
 codex login
 ```
+
+**Claude**
+
+```bash
+# Claude Code (fluttAIrbar reuses this session)
+claude
+```
+
+Sign in once with a Claude subscription (Pro, Max, Team or Enterprise). An
+API-key-only setup has no subscription usage windows and reads as signed out.
+On macOS the first read can show a Keychain prompt for the
+`Claude Code-credentials` item.
 
 **Cursor**
 
@@ -94,8 +115,8 @@ dart run tool/smoke_codex.dart
 
 ### Harness updates
 
-The harness view scans only this fixed allowlist: `pi`, `codex`, `grok`,
-`cursor-agent`, `opencode`, `fx`, `ori`, and `zcode`. It never accepts an
+The harness view scans only this fixed allowlist: `pi`, `codex`, `claude`,
+`grok`, `cursor-agent`, `opencode`, `fx`, `ori`, and `zcode`. It never accepts an
 arbitrary package or shell command. Open the labeled `Harnesses` button in the
 panel header, expand any harness to see its config files, and use its
 individual `Update` action or the safe `Update all` button. The default
@@ -117,13 +138,21 @@ timestamp and skips them until they are at least 14 days old. If release
 metadata cannot be verified, the update is skipped. In the GUI, an individual
 `Update now` or confirmed `Update all` explicitly allows an early release, but
 only for the fixed allowlist and only when metadata is verified. Grok Build uses
-its own official non-npm channel and is labeled separately in the panel. Cursor
+its own official non-npm channel and is labeled separately in the panel.
+Claude Code's native install (`~/.local/bin/claude`) is labeled the same way:
+its latest version comes from Anthropic's official release channel
+(`https://downloads.claude.ai/claude-code-releases/latest`, or `stable` when
+`autoUpdatesChannel` in `~/.claude/settings.json` says so) and its update action
+is `claude update`. An npm install of `@anthropic-ai/claude-code` is detected
+by its location under `node_modules` and follows the npm path instead,
+including the 14-day release-age gate and the scoped exemption described
+below. Cursor
 Agent is shown as manual-only until it exposes a reliable update check; the app
 will not guess or run its updater. Ori is a launcher/adapter for other
 harnesses, not a standalone agent runtime. ZCode is shown for configuration
 access but has no safe updater command.
 
-When updating Codex or OpenCode, fluttAIrbar exempts the selected CLI and its
+When updating Codex, Claude Code (npm) or OpenCode, fluttAIrbar exempts the selected CLI and its
 platform binary packages from npm's configured minimum release age for that
 install, including child npm processes started by the installer. Other
 dependencies retain the age gate; the user's npm configuration is unchanged.
@@ -211,10 +240,80 @@ visible model alias as usable. The harness overview shows provider/model hints
 without printing API keys, so use it to confirm that the selected model and
 provider match the command you are actually running.
 
+## Command line
+
+`fluttairbar-cli` is the headless command-line tool. It imports no Flutter
+code, so it runs on servers and over SSH, and it is what fleet tools call.
+Build it once:
+
+```bash
+dart compile exe tool/fluttairbar_cli.dart -o fluttairbar-cli
+# or, without compiling:
+dart run tool/fluttairbar_cli.dart --help
+```
+
+```text
+fluttairbar-cli harnesses [--json] [--only ID,ID] [--update] [--sync-codex-daemon]
+fluttairbar-cli usage [--json]
+fluttairbar-cli version
+fluttairbar-cli --help
+```
+
+`harnesses` is the same command as `dart run tool/update_harnesses.dart` (that
+script stays and runs the same code). Without a flag it only reads: installed
+version, latest release, update source and redacted config files per harness.
+`--update` and `--sync-codex-daemon` behave as described under
+[Harness updates](#harness-updates). The JSON is a list with one object per
+harness: `id`, `name`, `installed`, `path`, `currentVersion`, `latestVersion`,
+`daemonVersion`, `daemonAhead`, `publishedAt`, `updateAvailable`,
+`ageGateSatisfied`, `updateSource` (`npm`, `githubRelease` or
+`officialChannel`), `checkError` and `configs`.
+
+`usage` prints one line per provider, or with `--json` one document:
+
+```json
+{
+  "schema": "fluttairbar.usage.v1",
+  "providers": [
+    {
+      "id": "claude",
+      "state": "ok",
+      "detail": "Read from the Claude Code session.",
+      "plan": "max",
+      "windows": [
+        {"id": "session", "label": "5 hours", "used_percent": 3.0, "resets_at": "2026-11-01T17:59:59.635Z"},
+        {"id": "weekly", "label": "7 days", "used_percent": 47.0, "resets_at": "2026-11-03T07:59:59.635Z"},
+        {"id": "weekly-opus", "label": "7 days · Opus", "used_percent": 86.0, "resets_at": "2026-11-03T07:59:59.635Z"}
+      ]
+    }
+  ]
+}
+```
+
+- `providers` always lists `codex`, `claude` and `cursor`, in that order.
+- `state` is one of `ok`, `signed-out`, `expired`, `stale`, `paused` or
+  `error`; `detail` is one plain sentence saying what happened and what to run.
+  A `stale` Codex session still carries its windows when the fetch worked.
+- `plan` is the provider's plan name (`pro`, `max`, `plus`, ...) or `""`.
+- `windows[].id` is `session`, `weekly`, `weekly-<model>` for model-specific
+  weekly limits, `plan` for Cursor's billing cycle, or a slug of a new window
+  name; unknown windows from the provider are passed through, never fatal.
+  `resets_at` is ISO-8601 UTC or `null`.
+- Paused providers follow the app's `Settings` (Cursor off by default, Claude
+  on when a session exists). The CLI never rewrites a credentials file, even
+  when the app may renew Codex, and never prints tokens, emails or account ids.
+- The compiled binary cannot load SQLite, so it reads Cursor only from
+  `~/.config/cursor/auth.json`; when only the Cursor app's database holds the
+  session it says so with state `error` instead of guessing.
+
+Exit codes: `0` when the command ran (also when a provider is signed out or
+expired), `1` when an update or sync failed, `64` for wrong usage.
+
 ## Privacy
 
 - Tokens stay on your machine; fluttAIrbar does not upload them to any fluttAIrbar server.
-- HTTP calls go to OpenAI / Cursor endpoints only, using your existing session.
+- HTTP calls go to OpenAI / Anthropic / Cursor endpoints only, using your existing session.
+- The Claude Code session and `~/.claude.json` are never shown or rewritten; only the plan name, usage percentages and reset times leave the credentials reader.
 - Reset credits are redeemed only after **two** confirmation dialogs; each redeem requires an explicit credit id.
 - Harness scanning reads file presence and redacted provider/model hints; credential contents are never shown.
 - Codex shortcut installation is opt-in and only removes files or PATH blocks it owns.
@@ -236,4 +335,4 @@ provider match the command you are actually running.
 
 MIT — see [LICENSE](LICENSE).
 
-Unofficial project; not affiliated with OpenAI, Cursor, or CodexBar.
+Unofficial project; not affiliated with OpenAI, Anthropic, Cursor, or CodexBar.
