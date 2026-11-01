@@ -38,6 +38,18 @@ class AuthException implements Exception {
   String toString() => message;
 }
 
+/// No local session exists for the provider: the user has to sign in with
+/// the provider's own CLI or app first.
+class SignedOutException extends AuthException {
+  SignedOutException(super.message);
+}
+
+/// A local session exists but has expired or was rejected; the provider's own
+/// CLI or app renews it. fluttAIrbar never renews it in read-only mode.
+class SessionExpiredException extends AuthException {
+  SessionExpiredException(super.message);
+}
+
 Map<String, dynamic> decodeJwtPayload(String token) {
   final parts = token.split('.');
   if (parts.length < 2) {

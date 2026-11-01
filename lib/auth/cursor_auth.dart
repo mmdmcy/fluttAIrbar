@@ -82,11 +82,19 @@ class CursorAuthStore {
   }
 
   static CursorCredentials? load() {
+    AuthException? unreadable;
     for (final dbPath in candidateDbPaths()) {
-      final creds = _fromVscdb(dbPath);
-      if (creds != null) return creds;
+      try {
+        final creds = _fromVscdb(dbPath);
+        if (creds != null) return creds;
+      } on AuthException catch (error) {
+        unreadable ??= error;
+      }
     }
-    return _fromAuthJson();
+    final fromJson = _fromAuthJson();
+    if (fromJson != null) return fromJson;
+    if (unreadable != null) throw unreadable;
+    return null;
   }
 
   static CursorCredentials? _fromVscdb(String dbPath) {
@@ -106,6 +114,14 @@ class CursorAuthStore {
       } finally {
         db.close();
       }
+    } on ArgumentError catch (_) {
+      // The SQLite library itself could not be loaded, as in a binary built
+      // with `dart compile exe`, which does not bundle native assets. Say so
+      // instead of reporting a signed-out Cursor.
+      throw AuthException(
+        'The Cursor app session could not be read because SQLite is not '
+        'available in this build; the fluttAIrbar app can read it.',
+      );
     } catch (_) {
       return null;
     }
@@ -134,7 +150,7 @@ class CursorAuthStore {
       final expires =
           DateTime.fromMillisecondsSinceEpoch((exp * 1000).round(), isUtc: true);
       if (expires.isBefore(DateTime.now().toUtc().add(const Duration(seconds: 60)))) {
-        throw AuthException(
+        throw SessionExpiredException(
           'Cursor access token expired. Open Cursor (or Cursor CLI) and sign in again.',
         );
       }
@@ -163,7 +179,7 @@ class CursorAuthStore {
   static CursorCredentials require() {
     final creds = load();
     if (creds != null) return creds;
-    throw AuthException(
+    throw SignedOutException(
       'No Cursor credentials found.\n'
       'Sign in to the Cursor app (writes state.vscdb) or ensure '
       '~/.config/cursor/auth.json exists.',

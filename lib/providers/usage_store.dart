@@ -2,21 +2,33 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../api/chatgpt_wham.dart';
-import '../api/cursor_api.dart';
+import '../auth/claude_auth.dart';
 import '../auth/codex_cli_auth.dart';
-import '../auth/cursor_auth.dart';
 import '../auth/opencode_auth.dart';
 import '../models/usage_snapshot.dart';
+import '../services/usage_fetcher.dart';
 import '../services/usage_preferences.dart';
 
 class UsageStore extends ChangeNotifier {
-  factory UsageStore({http.Client? client, UsagePreferences? preferences}) {
+  /// [claudeCredentialsPresent] decides whether Claude is polled before the
+  /// user has chosen in Settings; it defaults to checking for a Claude Code
+  /// session on this machine.
+  factory UsageStore({
+    http.Client? client,
+    UsagePreferences? preferences,
+    bool Function()? claudeCredentialsPresent,
+  }) {
     final resolvedPreferences = preferences ?? UsagePreferences();
+    final resolvedClient = client ?? http.Client();
     return UsageStore._(
-      client: client ?? http.Client(),
+      client: resolvedClient,
       ownsClient: client == null,
       preferences: resolvedPreferences,
+      fetcher: UsageFetcher(client: resolvedClient),
       cursorEnabled: resolvedPreferences.loadCursorEnabled(),
+      claudeEnabled:
+          resolvedPreferences.loadClaudeEnabled() ??
+          (claudeCredentialsPresent ?? ClaudeAuthStore.hasCredentials)(),
       codexAuthRefreshEnabled: resolvedPreferences
           .loadCodexAuthRefreshEnabled(),
     );
@@ -26,18 +38,22 @@ class UsageStore extends ChangeNotifier {
     required this._client,
     required this._ownsClient,
     required this._preferences,
+    required this._fetcher,
     required this._cursorEnabled,
+    required this._claudeEnabled,
     required this._codexAuthRefreshEnabled,
   });
 
   final http.Client _client;
   final bool _ownsClient;
   final UsagePreferences _preferences;
+  final UsageFetcher _fetcher;
 
   AppSnapshot _snapshot = const AppSnapshot();
   bool _loading = false;
   bool _redeeming = false;
   bool _cursorEnabled;
+  bool _claudeEnabled;
   bool _codexAuthRefreshEnabled;
   String? _globalError;
   String? _statusMessage;
@@ -46,6 +62,10 @@ class UsageStore extends ChangeNotifier {
   bool get loading => _loading;
   bool get redeeming => _redeeming;
   bool get cursorEnabled => _cursorEnabled;
+
+  /// Claude polling: on by default when a Claude Code session exists, and
+  /// switchable in Settings like Cursor.
+  bool get claudeEnabled => _claudeEnabled;
 
   /// Whether a stale Codex CLI session may be renewed and written back to
   /// ~/.codex/auth.json. Off by default: the file is then only read.
@@ -77,6 +97,36 @@ class UsageStore extends ChangeNotifier {
     if (!enabled) {
       _snapshot = AppSnapshot(
         codex: _snapshot.codex,
+        claude: _snapshot.claude,
+        refreshedAt: _snapshot.refreshedAt,
+      );
+    }
+    notifyListeners();
+    return true;
+  }
+
+  /// Enables or pauses Claude usage polling. The Claude Code session is only
+  /// ever read, never changed.
+  bool setClaudeEnabled(bool enabled) {
+    if (_claudeEnabled == enabled) return true;
+    try {
+      _preferences.saveClaudeEnabled(enabled);
+    } on Object catch (_) {
+      _globalError = 'Could not save the Claude display preference.';
+      _statusMessage = _globalError;
+      notifyListeners();
+      return false;
+    }
+
+    _claudeEnabled = enabled;
+    _globalError = null;
+    _statusMessage = enabled
+        ? 'Claude enabled. Refreshing usage is available from the header.'
+        : 'Claude paused. The Claude Code session was left untouched.';
+    if (!enabled) {
+      _snapshot = AppSnapshot(
+        codex: _snapshot.codex,
+        cursor: _snapshot.cursor,
         refreshedAt: _snapshot.refreshedAt,
       );
     }
@@ -109,70 +159,23 @@ class UsageStore extends ChangeNotifier {
     _globalError = null;
     notifyListeners();
 
-    CodexUsage? codex;
-    CursorUsage? cursor;
-
-    try {
-      final creds = await CodexAuthResolver.resolve(
-        client: _client,
-        refreshAuthFile: _codexAuthRefreshEnabled,
-      );
-      if (creds.stale) {
-        _statusMessage =
-            'Codex session is older than '
-            '${CodexCliAuthStore.staleAfterDays} days; run `codex` to renew '
-            'it, or allow refresh in Settings.';
-      }
-      final wham = ChatGptWhamClient(client: _client);
-      codex = await wham.fetchUsage(creds);
-      try {
-        final resets = await wham.fetchResetCredits(creds);
-        codex = codex.copyWith(
-          resetCredits: resets.credits,
-          availableResetCount: resets.availableCount,
-        );
-      } catch (_) {}
-    } on AuthException catch (e) {
-      codex = CodexUsage(
-        email: '?',
-        accountId: '',
-        authSource: 'none',
-        error: e.message,
-        fetchedAt: DateTime.now(),
-      );
-    } catch (e) {
-      codex = CodexUsage(
-        email: '?',
-        accountId: '',
-        authSource: 'none',
-        error: e.toString(),
-        fetchedAt: DateTime.now(),
-      );
-    }
-
-    if (_cursorEnabled) {
-      try {
-        final creds = CursorAuthStore.require();
-        final api = CursorApiClient(client: _client);
-        cursor = await api.fetchUsage(creds);
-      } on AuthException catch (e) {
-        cursor = CursorUsage(
-          authSource: 'none',
-          error: e.message,
-          fetchedAt: DateTime.now(),
-        );
-      } catch (e) {
-        cursor = CursorUsage(
-          authSource: 'none',
-          error: e.toString(),
-          fetchedAt: DateTime.now(),
-        );
-      }
+    final results = await Future.wait<Object?>([
+      _fetcher.codex(refreshAuthFile: _codexAuthRefreshEnabled),
+      _claudeEnabled ? _fetcher.claude() : Future.value(null),
+      _cursorEnabled ? _fetcher.cursor() : Future.value(null),
+    ]);
+    final codex = results[0] as CodexUsage;
+    if (codex.state == UsageState.stale) {
+      _statusMessage =
+          'Codex session is older than '
+          '${CodexCliAuthStore.staleAfterDays} days; run `codex` to renew '
+          'it, or allow refresh in Settings.';
     }
 
     _snapshot = AppSnapshot(
       codex: codex,
-      cursor: _cursorEnabled ? cursor : null,
+      claude: _claudeEnabled ? results[1] as ClaudeUsage? : null,
+      cursor: _cursorEnabled ? results[2] as CursorUsage? : null,
       refreshedAt: DateTime.now(),
     );
     _loading = false;

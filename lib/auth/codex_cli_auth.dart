@@ -168,7 +168,7 @@ class CodexAuthResolver {
       );
     }
 
-    throw AuthException(
+    throw SignedOutException(
       'No ChatGPT/Codex credentials found.\n'
       'Run `codex login` (writes ~/.codex/auth.json).',
     );

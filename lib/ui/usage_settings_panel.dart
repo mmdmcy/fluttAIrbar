@@ -46,6 +46,24 @@ class UsageSettingsPanel extends StatelessWidget {
           const SizedBox(height: 4),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
+            title: const Text('Claude usage'),
+            subtitle: Text(
+              store.claudeEnabled
+                  ? 'Read from the Claude Code session; never refreshed or '
+                        'rewritten.'
+                  : 'Paused. On by default when a Claude Code session '
+                        'exists.',
+            ),
+            value: store.claudeEnabled,
+            onChanged: (enabled) {
+              if (!store.setClaudeEnabled(enabled)) return;
+              if (enabled) {
+                unawaited(store.refresh(force: true));
+              }
+            },
+          ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
             title: const Text('Cursor usage'),
             subtitle: Text(
               store.cursorEnabled

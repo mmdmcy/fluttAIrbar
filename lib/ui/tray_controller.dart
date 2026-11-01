@@ -114,6 +114,17 @@ class TrayController with TrayListener, WindowListener {
               label: 'Resets · $resets available',
               disabled: true,
             ),
+            if (store.claudeEnabled)
+              MenuItem(
+                key: 'claude',
+                label: () {
+                  final w = snap.claude?.headline;
+                  if (w == null) return 'Claude · —';
+                  final left = (100 - w.usedPercent).clamp(0, 100).round();
+                  return 'Claude ${w.label ?? ''} · $left% left';
+                }(),
+                disabled: true,
+              ),
             if (store.cursorEnabled)
               MenuItem(
                 key: 'cursor',

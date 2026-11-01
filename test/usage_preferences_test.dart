@@ -34,7 +34,10 @@ void main() {
       preferences.saveCursorEnabled(false);
       expect(preferences.loadCursorEnabled(), isFalse);
 
-      final store = UsageStore(preferences: preferences);
+      final store = UsageStore(
+        preferences: preferences,
+        claudeCredentialsPresent: () => false,
+      );
       addTearDown(store.dispose);
       expect(store.cursorEnabled, isFalse);
       expect(store.snapshot.cursor, isNull);
@@ -45,5 +48,58 @@ void main() {
     } finally {
       directory.deleteSync(recursive: true);
     }
+  });
+
+  test('Claude polls by default only when a Claude Code session exists', () {
+    final directory = Directory.systemTemp.createTempSync(
+      'fluttairbar-usage-preferences-',
+    );
+    addTearDown(() => directory.deleteSync(recursive: true));
+    final preferences = UsagePreferences(
+      environment: HarnessEnvironment(
+        home: directory.path,
+        configHome: directory.path,
+        dataHome: directory.path,
+        piDirectory: directory.path,
+        codexHome: directory.path,
+        grokConfigPath: null,
+        appData: null,
+        localAppData: null,
+        isWindows: false,
+        isMacOS: false,
+      ),
+    );
+
+    expect(preferences.loadClaudeEnabled(), isNull);
+    final withSession = UsageStore(
+      preferences: preferences,
+      claudeCredentialsPresent: () => true,
+    );
+    addTearDown(withSession.dispose);
+    expect(withSession.claudeEnabled, isTrue);
+    final withoutSession = UsageStore(
+      preferences: preferences,
+      claudeCredentialsPresent: () => false,
+    );
+    addTearDown(withoutSession.dispose);
+    expect(withoutSession.claudeEnabled, isFalse);
+
+    // An explicit choice wins over the session check, both ways.
+    expect(withSession.setClaudeEnabled(false), isTrue);
+    expect(preferences.loadClaudeEnabled(), isFalse);
+    final paused = UsageStore(
+      preferences: preferences,
+      claudeCredentialsPresent: () => true,
+    );
+    addTearDown(paused.dispose);
+    expect(paused.claudeEnabled, isFalse);
+    expect(paused.snapshot.claude, isNull);
+    preferences.saveClaudeEnabled(true);
+    final enabled = UsageStore(
+      preferences: preferences,
+      claudeCredentialsPresent: () => false,
+    );
+    addTearDown(enabled.dispose);
+    expect(enabled.claudeEnabled, isTrue);
   });
 }

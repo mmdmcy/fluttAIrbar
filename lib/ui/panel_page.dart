@@ -131,20 +131,37 @@ class _PanelPageState extends State<PanelPage> {
                     ),
                   )
                 else ...[
-                  _CodexBlock(
-                    usage: snap.codex,
-                    loading: widget.store.loading,
-                    redeeming: widget.store.redeeming,
-                    onRedeem: (credit) => _confirmRedeem(context, credit),
-                  ),
-                  if (widget.store.cursorEnabled) ...[
-                    const SizedBox(height: 10),
-                    _CursorBlock(
-                      usage: snap.cursor,
-                      loading: widget.store.loading,
+                  Expanded(
+                    child: SingleChildScrollView(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          _CodexBlock(
+                            usage: snap.codex,
+                            loading: widget.store.loading,
+                            redeeming: widget.store.redeeming,
+                            onRedeem: (credit) =>
+                                _confirmRedeem(context, credit),
+                          ),
+                          if (widget.store.claudeEnabled) ...[
+                            const SizedBox(height: 10),
+                            _ClaudeBlock(
+                              usage: snap.claude,
+                              loading: widget.store.loading,
+                            ),
+                          ],
+                          if (widget.store.cursorEnabled) ...[
+                            const SizedBox(height: 10),
+                            _CursorBlock(
+                              usage: snap.cursor,
+                              loading: widget.store.loading,
+                            ),
+                          ],
+                        ],
+                      ),
                     ),
-                  ],
-                  const Spacer(),
+                  ),
+                  const SizedBox(height: 6),
                   Text(
                     'Local auth only · resets need double confirm',
                     style: theme.textTheme.labelSmall?.copyWith(
@@ -545,6 +562,73 @@ class _ResetsRow extends StatelessWidget {
       'Dec',
     ];
     return '${months[d.month - 1]} ${d.day}';
+  }
+}
+
+class _ClaudeBlock extends StatelessWidget {
+  const _ClaudeBlock({required this.usage, required this.loading});
+  final ClaudeUsage? usage;
+  final bool loading;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final usage = this.usage;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Claude',
+          style: theme.textTheme.titleSmall?.copyWith(
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        if (usage == null)
+          Text(
+            loading ? 'Loading…' : 'Press Refresh to load',
+            style: theme.textTheme.bodySmall,
+          )
+        else if (usage.hasError)
+          _ErrorLine(message: usage.error!)
+        else ...[
+          if (usage.plan != null)
+            Text(
+              usage.plan!,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.55),
+              ),
+            ),
+          for (final window in usage.windows)
+            UsageMeter(
+              label: _meterLabel(window),
+              window: window,
+              compact: true,
+            ),
+          if (usage.windows.isEmpty)
+            Text(
+              'No rate windows',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+              ),
+            ),
+        ],
+      ],
+    );
+  }
+
+  /// Short meter labels in the Codex style; the full label stays in the CLI.
+  String _meterLabel(RateWindow window) {
+    switch (window.id) {
+      case 'session':
+        return '5h';
+      case 'weekly':
+        return 'Weekly';
+    }
+    final label = window.label ?? 'Window';
+    final separator = label.lastIndexOf('· ');
+    return separator < 0 ? label : label.substring(separator + 2);
   }
 }
 
