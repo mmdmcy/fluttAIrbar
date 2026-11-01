@@ -89,6 +89,14 @@ flutter run -d linux
 
 Install the complete release bundle in a stable location before configuring it
 as a login application. Development builds must not be registered for startup.
+On Linux, `tool/install_linux.sh` does all of the following and also installs
+`fluttairbar-cli` (the previous bundle is kept as `fluttairbar.bak-TIME`):
+
+```bash
+tool/install_linux.sh
+```
+
+By hand, the same steps:
 
 ```bash
 flutter build linux --release
@@ -100,8 +108,7 @@ ln -sfn "$HOME/.local/opt/fluttairbar/fluttairbar" \
   "$HOME/.local/bin/fluttairbar"
 ```
 
-Configure the desktop's startup manager to run `fluttairbar --background`, or
-declare `autostart fluttairbar.desktop` in a LinuxMice endpoint profile. The app
+Configure the desktop's startup manager to run `fluttairbar --background`. The app
 then starts quietly in the tray; click the tray icon to open the small usage
 panel. It does not need administrator permissions and never changes startup
 configuration itself.
@@ -247,10 +254,19 @@ code, so it runs on servers and over SSH, and it is what fleet tools call.
 Build it once:
 
 ```bash
-dart compile exe tool/fluttairbar_cli.dart -o fluttairbar-cli
+dart compile exe tool/fluttairbar_cli.dart -o ~/.local/bin/fluttairbar-cli
 # or, without compiling:
 dart run tool/fluttairbar_cli.dart --help
 ```
+
+`tool/install_linux.sh` compiles it too.
+
+For AI agents, [`skills/fluttairbar/SKILL.md`](skills/fluttairbar/SKILL.md) is
+an [Agent Skill](https://agentskills.io) that tells any coding agent (Claude
+Code, Codex, OpenCode, Pi, Cursor, ...) how to use `fluttairbar-cli`: which
+command answers which question, how to read the JSON, and to ask before
+updating. Link the folder into your agent's skills folder, for example
+`ln -s "$PWD/skills/fluttairbar" ~/.claude/skills/fluttairbar`.
 
 ```text
 fluttairbar-cli harnesses [--json] [--only ID,ID] [--update] [--sync-codex-daemon]
