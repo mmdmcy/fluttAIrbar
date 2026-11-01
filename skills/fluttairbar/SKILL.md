@@ -57,5 +57,7 @@ output says which.
 
 From a checkout of https://github.com/mmdmcy/fluttAIrbar on Linux:
 `tool/install_linux.sh` (the tray app and `fluttairbar-cli`), or only the
-command line with `dart compile exe tool/fluttairbar_cli.dart -o
-~/.local/bin/fluttairbar-cli`.
+command line with `flutter pub get` and then `dart compile exe
+tool/fluttairbar_cli.dart -o ~/.local/bin/fluttairbar-cli`. Both need the
+Flutter SDK; the compiled `fluttairbar-cli` does not, so it can be copied to
+a machine without it.

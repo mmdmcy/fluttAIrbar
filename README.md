@@ -250,10 +250,13 @@ provider match the command you are actually running.
 ## Command line
 
 `fluttairbar-cli` is the headless command-line tool. It imports no Flutter
-code, so it runs on servers and over SSH, and it is what fleet tools call.
-Build it once:
+code, so the compiled binary runs on servers and over SSH without Flutter or
+Dart, and it is what fleet tools call. Building it needs the Flutter SDK
+(which brings `dart`), because this package depends on Flutter and plain
+`dart pub get` cannot resolve it. Build it once:
 
 ```bash
+flutter pub get
 dart compile exe tool/fluttairbar_cli.dart -o ~/.local/bin/fluttairbar-cli
 # or, without compiling:
 dart run tool/fluttairbar_cli.dart --help
