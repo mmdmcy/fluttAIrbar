@@ -32,6 +32,9 @@ migrate_working_dir/
 .pub/
 /build/
 /coverage/
+# Compiled command-line tool (dart compile exe tool/fluttairbar_cli.dart)
+/fluttairbar-cli
+/fluttairbar-cli.exe
 
 # Symbolication related
 app.*.symbols
