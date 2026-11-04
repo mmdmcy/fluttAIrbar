@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../agents/conversations.dart' as conversations;
+import '../agents/hooks.dart';
 import '../agents/local.dart';
 import '../agents/quiz.dart';
 import '../agents/skill_settings.dart';
@@ -184,6 +185,7 @@ Future<int> _guard(
     final failure = switch (error) {
       CliFailure failure => failure,
       SkillsError(:final message) ||
+      HooksError(:final message) ||
       QuizError(:final message) ||
       conversations.ConversationsError(:final message) ||
       TomlError(:final message) => CliFailure(1, message),
@@ -390,6 +392,107 @@ Future<int> runSkillsCommand(
       throw CliFailure(
         64,
         'unknown skills command "$command": status, settings, install, add, remove, on, off',
+      );
+  }
+});
+
+/// `fluttairbar-cli hooks ...`.
+Future<int> runHooksCommand(
+  List<String> args, {
+  required StringSink out,
+  required StringSink err,
+  Local? local,
+  Asker? ask,
+}) => _guard(args, out, err, (opts) async {
+  final here = local ?? Local.system();
+  final asker = ask ?? _askInTerminal;
+  if (Platform.isWindows) {
+    throw CliFailure(1, 'agent hooks are read on Linux and macOS devices');
+  }
+  if (opts.agent != null) {
+    throw CliFailure(
+      64,
+      'each hook names its agent in its $hooksFile; hooks take no --agent',
+    );
+  }
+  final store = SettingsStore(here, given: opts.settings, name: 'hooks.toml');
+  final HookSettings settings;
+  try {
+    settings = HookSettings.parse(store.read());
+  } on TomlError catch (error) {
+    throw CliFailure(1, '${store.path}: ${error.message}');
+  }
+  // Which agents have hooks, and where: the agent table skills use.
+  final skills = SettingsStore(here);
+  final List<AgentDef> table;
+  try {
+    table = _loadSkills(skills).agentTable();
+  } on TomlError catch (error) {
+    throw CliFailure(1, '${skills.path}: ${error.message}');
+  }
+  final probe = probeHooks(here, settings, table);
+  final words = opts.words;
+  final command = words.isEmpty ? 'status' : words.first;
+  final rest = words.skip(1).toList();
+  void expectWords(int count, String usage) {
+    if (rest.length != count) throw CliFailure(64, 'usage: $usage');
+  }
+
+  switch (command) {
+    case 'status':
+      expectWords(0, 'fluttairbar-cli hooks [--format json]');
+      final shown = hooksReport(
+        probe,
+        settings: store.fromStdin ? '-' : store.path,
+      );
+      _emit(opts, out, shown, textHooksReport(shown));
+    case 'install' || 'remove':
+      final plan = hooksPlan(
+        probe: probe,
+        settings: settings,
+        names: rest,
+        all: opts.all,
+        remove: command == 'remove',
+        replace: opts.replace,
+      );
+      if (plan.steps.isEmpty) {
+        _emit(opts, out, plan.toJson(), textHooksPlan(plan));
+        return;
+      }
+      if (!opts.json) out.writeln(textHooksPlan(plan));
+      try {
+        await approve(opts, plan.question, err, asker);
+      } on CliFailure catch (failure) {
+        if (failure.exit == 0 && opts.json) {
+          _emit(opts, out, plan.toJson(), textHooksPlan(plan));
+        }
+        rethrow;
+      }
+      final done = runHooksPlan(here, probe, plan);
+      _emit(opts, out, done, textHooksDone(done));
+    case 'add':
+      expectWords(1, 'fluttairbar-cli hooks add ~/PATH');
+      final target = addTarget(here, rest.first);
+      if (target.url != null) {
+        throw CliFailure(1, 'clone the repository first, then add its folder');
+      }
+      await approve(
+        opts,
+        'Register ${target.path} as a hook collection on ${here.device}?',
+        err,
+        asker,
+      );
+      final added = addHookCollection(
+        local: here,
+        store: store,
+        settings: settings,
+        path: target.path,
+      );
+      _emit(opts, out, added, added['detail'] as String);
+    default:
+      throw CliFailure(
+        64,
+        'unknown hooks command "$command": status, install, remove, add',
       );
   }
 });

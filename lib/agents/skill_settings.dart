@@ -21,6 +21,7 @@ class AgentDef {
     this.history = '',
     this.loaded = '',
     this.ask = const [],
+    this.hooks = '',
   });
 
   /// Short name for `--agent` and the settings.
@@ -52,6 +53,11 @@ class AgentDef {
   /// `{out}` for a file it writes its final answer to.
   final List<String> ask;
 
+  /// Its hook settings (home-relative): a JSON file with a `hooks` object in
+  /// Claude Code's shape. Empty: the agent has no hooks (`fluttairbar-cli
+  /// hooks` says so and never guesses one).
+  final String hooks;
+
   factory AgentDef.fromToml(Map<String, Object?> table) {
     final id = tomlText(table['id'], 'agent id');
     return AgentDef(
@@ -63,6 +69,7 @@ class AgentDef {
       history: tomlText(table['history'], 'agent $id history'),
       loaded: tomlText(table['loaded'], 'agent $id loaded'),
       ask: tomlStrings(table['ask'], 'agent $id ask'),
+      hooks: tomlText(table['hooks'], 'agent $id hooks'),
     );
   }
 
@@ -76,6 +83,7 @@ class AgentDef {
     if (history.isNotEmpty) tomlLine('history', history),
     if (ask.isNotEmpty) tomlLine('ask', ask),
     if (loaded.isNotEmpty) tomlLine('loaded', loaded),
+    if (hooks.isNotEmpty) tomlLine('hooks', hooks),
   ];
 }
 
@@ -101,6 +109,7 @@ const builtinAgents = [
     ],
     // Claude Code writes this line into the session when it loads a skill.
     loaded: r'Base directory for this skill: [^"\\]*',
+    hooks: '~/.claude/settings.json',
   ),
   AgentDef(
     id: 'codex',
@@ -235,6 +244,7 @@ class SkillSettings {
           !homeFolder(extra.dir) ||
           extra.reads.any((dir) => !homeFolder(dir)) ||
           (extra.history.isNotEmpty && !homeFolder(extra.history)) ||
+          (extra.hooks.isNotEmpty && !homeFolder(extra.hooks)) ||
           (extra.instructions.isNotEmpty && !homeFolder(extra.instructions))) {
         throw TomlError(
           'agent "${extra.id}" needs a plain id and home-relative folders (~/...)',

@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:fluttairbar/agents/conversations.dart';
+import 'package:fluttairbar/agents/hooks.dart';
 import 'package:fluttairbar/agents/local.dart';
 import 'package:fluttairbar/agents/quiz.dart';
 import 'package:fluttairbar/agents/skill_settings.dart';
@@ -542,6 +543,393 @@ loaded = 'Base directory for this skill: [^"\\]*'
       final (code, error) = await cli(['frobnicate']);
       expect(code, 64);
       expect((error['error'] as Map)['code'], 'usage');
+    });
+  });
+
+  group('hooks', () {
+    const check = 'python3 -I ~/hooks/promise-check.py';
+    const declared = '''
+# hooks in this folder
+[[hook]]
+name = "promise-check"
+agent = "claude"
+event = "Stop"
+command = "python3 -I {dir}/promise-check.py"
+timeout = 10
+description = "Sends a promise back once"
+
+[[hook]]
+name = "codex-note"
+agent = "codex"
+event = "Stop"
+command = "sh {dir}/note.sh"
+''';
+    const original = {
+      'permissions': {
+        'allow': ['Bash(ls:*)'],
+      },
+      'hooks': {
+        'UserPromptSubmit': [
+          {
+            'hooks': [
+              {'type': 'command', 'command': 'sh ~/draft/prompt-trigger.sh'},
+            ],
+          },
+        ],
+      },
+      'model': 'opus',
+    };
+
+    late Directory root;
+    late Local local;
+    late File settingsJson;
+
+    setUp(() {
+      root = Directory.systemTemp.createTempSync('fab-hooks-');
+      local = tempLocal(root);
+      File('${root.path}/hooks/hooks.toml')
+        ..createSync(recursive: true)
+        ..writeAsStringSync(declared);
+      settingsJson = File('${root.path}/.claude/settings.json')
+        ..createSync(recursive: true)
+        ..writeAsStringSync(
+          '${const JsonEncoder.withIndent('  ').convert(original)}\n',
+        );
+      Process.runSync('chmod', ['600', settingsJson.path]);
+      Directory('${root.path}/.codex').createSync();
+      SettingsStore(
+        local,
+        name: 'hooks.toml',
+      ).write(HookSettings(collections: ['~/hooks']).toToml());
+    });
+    tearDown(() => root.deleteSync(recursive: true));
+
+    Future<(int, Map<String, Object?>)> cli(List<String> args) async {
+      final out = StringBuffer();
+      final code = await runHooksCommand(
+        [...args, '--format', 'json'],
+        out: out,
+        err: StringBuffer(),
+        local: local,
+        ask: (_) async => throw CliFailure(3, 'not done: it needs approval'),
+      );
+      return (
+        code,
+        out.isEmpty
+            ? <String, Object?>{}
+            : jsonDecode(out.toString()) as Map<String, Object?>,
+      );
+    }
+
+    Map<String, Object?> hookRow(Map<String, Object?> shown, String name) =>
+        (shown['hooks'] as List).cast<Map<String, Object?>>().firstWhere(
+          (row) => row['name'] == name,
+        );
+    List<String> backups() =>
+        Directory('${root.path}/.claude')
+            .listSync()
+            .map((entry) => entry.path.split('/').last)
+            .where((name) => name.contains('.bak-'))
+            .toList()
+          ..sort();
+    Map<String, Object?> current() =>
+        jsonDecode(settingsJson.readAsStringSync()) as Map<String, Object?>;
+    List<String> registered() => HookSettings.parse(
+      SettingsStore(local, name: 'hooks.toml').read(),
+    ).collections;
+
+    test('hooks.toml reads its hooks and refuses what it cannot', () {
+      final hooks = parseHooks(declared, '~/hooks');
+      expect(hooks.map((h) => h.name), ['promise-check', 'codex-note']);
+      expect(hooks.first.command, check);
+      expect(hooks.first.timeout, 10);
+      expect(hooks.last.timeout, isNull);
+      const good = 'name = "x"\nagent = "claude"\nevent = "Stop"\n';
+      for (final bad in [
+        'hooks = 1\n',
+        '[[hook]]\n${good}command = "a"\nwhen = "now"\n',
+        '[[hook]]\nname = "../x"\nagent = "claude"\nevent = "Stop"\ncommand = "a"\n',
+        '[[hook]]\nname = "x"\nagent = "claude"\nevent = "on stop"\ncommand = "a"\n',
+        '[[hook]]\n$good',
+        '[[hook]]\n${good}command = "a"\ntimeout = "10"\n',
+        '[[hook]]\n${good}command = "a"\ntimeout = 0\n',
+      ]) {
+        expect(
+          () => parseHooks(bad, '~/hooks'),
+          throwsA(isA<TomlError>()),
+          reason: bad,
+        );
+      }
+      expect(
+        () =>
+            parseHooks('[[hook]]\n${good}command = "{dir}/a"\n', '~/my hooks'),
+        throwsA(isA<TomlError>()),
+        reason: '{dir} is put in unquoted, so it must need no quoting',
+      );
+      expect(
+        HookSettings.parse(
+          HookSettings(collections: ['~/a']).toToml(),
+        ).collections,
+        ['~/a'],
+      );
+      expect(
+        () => HookSettings.parse('colections = []\n'),
+        throwsA(isA<TomlError>()),
+      );
+    });
+
+    test('status: per agent installed, missing, or no hooks', () async {
+      final (code, shown) = await cli([]);
+      expect(code, 0);
+      expect(shown['schema_version'], hooksSchema);
+      expect(hookRow(shown, 'promise-check')['state'], 'missing');
+      expect(hookRow(shown, 'codex-note')['state'], 'no hooks');
+      final agents = (shown['agents'] as List).cast<Map>();
+      expect(agents.map((a) => '${a['agent']} ${a['state']}'), [
+        'claude ok',
+        'codex none',
+      ]);
+      expect((shown['others'] as List).single, {
+        'agent': 'claude',
+        'event': 'UserPromptSubmit',
+        'matcher': '',
+        'type': 'command',
+        'command': 'sh ~/draft/prompt-trigger.sh',
+      });
+      expect(shown['detail'], contains('0 of 2 installed'));
+      expect(shown['detail'], contains('no hooks: Codex'));
+    });
+
+    test(
+      'install adds once with a dated copy, changes nothing else, and remove takes it out',
+      () async {
+        final before = settingsJson.readAsStringSync();
+        final (planned, plan) = await cli(['install', '--all', '-n']);
+        expect(planned, 0);
+        expect((plan['steps'] as List).cast<Map>().map((s) => s['hook']), [
+          'promise-check',
+        ]);
+        expect(plan['refused'], [contains('Codex has no hooks')]);
+        expect(settingsJson.readAsStringSync(), before);
+
+        final (asked, error) = await cli(['install', '--all']);
+        expect(asked, 3, reason: 'no terminal and no -y');
+        expect((error['error'] as Map)['code'], 'needs-approval');
+        expect(settingsJson.readAsStringSync(), before);
+        expect(backups(), isEmpty);
+
+        final (done, made) = await cli(['install', '--all', '-y']);
+        expect(done, 0);
+        expect(made['added'], 1);
+        final date = civilDate();
+        expect(backups(), ['settings.json.bak-$date']);
+        expect(
+          File(
+            '${root.path}/.claude/settings.json.bak-$date',
+          ).readAsStringSync(),
+          before,
+          reason: 'the copy is the file as it was',
+        );
+        final after = current();
+        expect(after['permissions'], original['permissions']);
+        expect(after['model'], 'opus');
+        expect(
+          (after['hooks'] as Map)['UserPromptSubmit'],
+          (original['hooks'] as Map)['UserPromptSubmit'],
+        );
+        expect((after['hooks'] as Map)['Stop'], [
+          {
+            'hooks': [
+              {'type': 'command', 'command': check, 'timeout': 10},
+            ],
+          },
+        ]);
+        expect(
+          settingsJson.statSync().mode & 0x1ff,
+          0x180,
+          reason: 'the file keeps its permissions (600)',
+        );
+        final (_, shown) = await cli([]);
+        expect(hookRow(shown, 'promise-check')['state'], 'installed');
+
+        final written = settingsJson.readAsStringSync();
+        final (again, twice) = await cli(['install', '--all', '-y']);
+        expect(again, 0);
+        expect(twice['steps'], isEmpty);
+        expect(twice['in_place'], ['claude: promise-check']);
+        expect(settingsJson.readAsStringSync(), written);
+        expect(backups(), hasLength(1), reason: 'no change, no copy');
+
+        final (removed, out) = await cli(['remove', 'promise-check', '-y']);
+        expect(removed, 0);
+        expect(out['removed'], 1);
+        expect(backups(), [
+          'settings.json.bak-$date',
+          'settings.json.bak-$date-2',
+        ]);
+        expect(
+          File(
+            '${root.path}/.claude/settings.json.bak-$date-2',
+          ).readAsStringSync(),
+          written,
+        );
+        expect(current(), original);
+        final (gone, nothing) = await cli(['remove', 'promise-check', '-y']);
+        expect(gone, 0);
+        expect(nothing['steps'], isEmpty);
+        expect(nothing['in_place'], [contains('is not in')]);
+        expect(backups(), hasLength(2));
+      },
+    );
+
+    test(
+      'a different entry is refused, and put right with --replace',
+      () async {
+        settingsJson.writeAsStringSync(
+          jsonEncode({
+            'hooks': {
+              'Stop': [
+                {
+                  'hooks': [
+                    {'type': 'command', 'command': check, 'timeout': 5},
+                    {'type': 'command', 'command': 'sh ~/other.sh'},
+                  ],
+                },
+              ],
+            },
+          }),
+        );
+        final (_, shown) = await cli([]);
+        expect(hookRow(shown, 'promise-check')['state'], 'different');
+        expect(hookRow(shown, 'promise-check')['found'], [
+          {'event': 'Stop', 'matcher': '', 'timeout': 5},
+        ]);
+        final (refusedCode, refused) = await cli([
+          'install',
+          'promise-check',
+          '-y',
+        ]);
+        expect(refusedCode, 0);
+        expect(refused['steps'], isEmpty);
+        expect(refused['refused'], [contains('add --replace')]);
+        final (code, done) = await cli([
+          'install',
+          'promise-check',
+          '--replace',
+          '-y',
+        ]);
+        expect(code, 0);
+        expect(done['replaced'], 1);
+        expect((current()['hooks'] as Map)['Stop'], [
+          {
+            'hooks': [
+              {'type': 'command', 'command': 'sh ~/other.sh'},
+            ],
+          },
+          {
+            'hooks': [
+              {'type': 'command', 'command': check, 'timeout': 10},
+            ],
+          },
+        ]);
+      },
+    );
+
+    test('refused input changes nothing', () async {
+      settingsJson.writeAsStringSync('{"hooks": {"Stop": ');
+      final (code, plan) = await cli(['install', '--all', '-y']);
+      expect(code, 0);
+      expect(plan['steps'], isEmpty);
+      expect(plan['refused'], contains(contains('is not valid JSON')));
+      expect(settingsJson.readAsStringSync(), '{"hooks": {"Stop": ');
+      settingsJson.writeAsStringSync('{"hooks": {"Stop": {"command": "x"}}}');
+      final (_, shape) = await cli(['install', '--all', '-y']);
+      expect(shape['refused'], contains(contains('hooks.Stop is not a list')));
+      expect(backups(), isEmpty);
+
+      final (unknown, error) = await cli(['install', 'nope', '-y']);
+      expect(unknown, 1);
+      expect((error['error'] as Map)['message'], contains('no hook "nope"'));
+      final (bare, _) = await cli(['install', '-y']);
+      expect(bare, 1);
+      final (agent, _) = await cli(['install', '--all', '--agent', 'claude']);
+      expect(agent, 64);
+      final (verb, _) = await cli(['frobnicate']);
+      expect(verb, 64);
+
+      Directory('${root.path}/empty').createSync();
+      final (noFile, _) = await cli(['add', '~/empty', '-y']);
+      expect(noFile, 1);
+      File('${root.path}/broken/hooks.toml')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('[[hook]]\nname = "x"\n');
+      final (broken, _) = await cli(['add', '~/broken', '-y']);
+      expect(broken, 1);
+      final (outside, _) = await cli(['add', '/etc', '-y']);
+      expect(outside, 1);
+      expect(registered(), ['~/hooks']);
+
+      // A hook is known by its command: two with one command are refused.
+      File('${root.path}/hooks/hooks.toml').writeAsStringSync(
+        '$declared\n[[hook]]\nname = "again"\nagent = "claude"\nevent = "SubagentStop"\ncommand = "python3 -I {dir}/promise-check.py"\n',
+      );
+      final (_, twice) = await cli([]);
+      expect(
+        (twice['collections'] as List).cast<Map>().single['error'],
+        contains('its command is also in this file'),
+      );
+      final (_, same) = await cli(['install', '--all', '-y']);
+      expect(same['steps'], isEmpty);
+      expect(same['refused'], [contains('its command is also in this file')]);
+      expect(backups(), isEmpty);
+    });
+
+    test('add registers a folder with a hooks.toml', () async {
+      File('${root.path}/more/hooks.toml')
+        ..createSync(recursive: true)
+        ..writeAsStringSync(
+          '[[hook]]\nname = "more"\nagent = "claude"\nevent = "PreToolUse"\nmatcher = "Bash"\ncommand = "sh {dir}/more.sh"\n',
+        );
+      final (planned, _) = await cli(['add', '~/more', '-n']);
+      expect(planned, 0);
+      expect(registered(), ['~/hooks'], reason: 'a dry run writes nothing');
+      final (code, added) = await cli(['add', '~/more', '-y']);
+      expect(code, 0);
+      expect(added['registered'], true);
+      expect(registered(), ['~/hooks', '~/more']);
+      final (_, made) = await cli(['install', 'more', '-y']);
+      expect(made['added'], 1);
+      expect((current()['hooks'] as Map)['PreToolUse'], [
+        {
+          'matcher': 'Bash',
+          'hooks': [
+            {'type': 'command', 'command': 'sh ~/more/more.sh'},
+          ],
+        },
+      ]);
+    });
+
+    test('a settings file behind a link is written where it points', () async {
+      final real = File('${root.path}/dotfiles/claude-settings.json')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('{}\n');
+      settingsJson.deleteSync();
+      Link(settingsJson.path).createSync(real.path);
+      final (code, _) = await cli(['install', 'promise-check', '-y']);
+      expect(code, 0);
+      expect(FileSystemEntity.isLinkSync(settingsJson.path), true);
+      expect(
+        (jsonDecode(real.readAsStringSync()) as Map)['hooks'],
+        contains('Stop'),
+      );
+    });
+
+    test('an agent with no settings file gets one', () async {
+      settingsJson.deleteSync();
+      final (code, done) = await cli(['install', 'promise-check', '-y']);
+      expect(code, 0);
+      expect((done['files'] as List).cast<Map>().single['backup'], isNull);
+      expect(current().keys, ['hooks']);
     });
   });
 

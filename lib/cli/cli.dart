@@ -19,6 +19,10 @@ Usage:
   fluttairbar-cli skills add ~/PATH|URL [-y|-n]
   fluttairbar-cli skills remove ~/PATH [-y|-n]
   fluttairbar-cli skills on|off SKILL [--agent ID] [-y|-n]
+  fluttairbar-cli hooks [--json]
+  fluttairbar-cli hooks install (HOOK... | --all) [--replace] [-y|-n]
+  fluttairbar-cli hooks remove HOOK... [-y|-n]
+  fluttairbar-cli hooks add ~/PATH [-y|-n]
   fluttairbar-cli quiz [--agent ID] [--json]
   fluttairbar-cli conversations [pack | copy [-n]] [--json]
   fluttairbar-cli version
@@ -49,6 +53,15 @@ Commands:
              links it again. settings prints the settings in use;
              --settings FILE (- for standard input) reads others, read
              only for -.
+  hooks      Agent hooks declared in a hooks.toml in each folder listed in
+             ~/.config/fluttairbar/hooks.toml, per agent here: installed,
+             missing, different (its command with another event, matcher
+             or timeout) or no hooks (an agent without hook settings).
+             install adds a hook to its agent's settings once (Claude Code:
+             ~/.claude/settings.json), remove takes it out; both keep a
+             dated copy (FILE.bak-DATE), change nothing else and refuse a
+             result that does not read back as intended. --replace puts a
+             different one as hooks.toml says. add registers a folder.
   quiz       Asks every agent here with an ask line the questions in
              quiz.txt beside the shared instructions, in a fresh session
              from an empty folder with no tools, and checks the answers.
@@ -119,6 +132,8 @@ Future<int> runCli(
       return runUsageCommand(rest, out: output, err: errors);
     case 'skills':
       return runSkillsCommand(rest, out: output, err: errors);
+    case 'hooks':
+      return runHooksCommand(rest, out: output, err: errors);
     case 'quiz':
       return runQuizCommand(rest, out: output, err: errors);
     case 'conversations':

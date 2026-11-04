@@ -1,6 +1,6 @@
 ---
 name: fluttairbar
-description: Check the AI command-line tools on this device (Claude Code, Codex, OpenCode, Pi, Cursor Agent, Grok Build, fx, Ori, ZCode) for their installed and newest versions and safe updates, and how much of the Claude, Codex and Cursor subscriptions signed in here is used, which agent skills and instructions file each coding agent has, and whether conversation history is kept on two devices, with fluttAIrbar's command line `fluttairbar-cli`. Use when asked whether AI tools are up to date, how much usage or limit is left, when a limit resets, before updating an AI command-line tool, or which skills an agent has.
+description: Check the AI command-line tools on this device (Claude Code, Codex, OpenCode, Pi, Cursor Agent, Grok Build, fx, Ori, ZCode) for their installed and newest versions and safe updates, and how much of the Claude, Codex and Cursor subscriptions signed in here is used, which agent skills, hooks and instructions file each coding agent has, and whether conversation history is kept on two devices, with fluttAIrbar's command line `fluttairbar-cli`. Use when asked whether AI tools are up to date, how much usage or limit is left, when a limit resets, before updating an AI command-line tool, or which skills an agent has.
 ---
 
 # fluttAIrbar
@@ -53,18 +53,22 @@ These install software: ask the user before running them, and run them
 only for tools the scan showed as ready. Exit 1 means an update failed; the
 output says which.
 
-## Agent skills, shared instructions, quiz, conversation history
+## Agent skills, hooks, shared instructions, quiz, conversation history
 
 ```bash
 fluttairbar-cli skills --json               # skills per agent, and their instructions file
 fluttairbar-cli skills install --all -n     # what linking would do; nothing changes
+fluttairbar-cli hooks --json                # hooks per agent: installed, missing, different, no hooks
+fluttairbar-cli hooks install --all -n      # what adding them would do; nothing changes
 fluttairbar-cli conversations --json        # history kept here, last copies, `behind`
 ```
 
 `skills` lists per skill and agent `linked`, `via DIR`, `copy`, `off` or
 `missing`, and for each agent whether its instructions file is `linked` to
 the shared one. `conversations` shows `behind`: directions of the copy that
-keep failing, with days. `install`, `add`, `remove`, `on`, `off` and
+keep failing, with days. `hooks` lists each declared hook's `state` for
+its agent; an agent without hook settings is `no hooks`, never guessed.
+`install`, `add`, `remove`, `on`, `off` (skills and hooks) and
 `conversations copy` change files: run them with `-n` first, show the plan,
 and add `-y` only when the user said so. Conversation history is never
 deleted or pruned; `quiz` uses the agents' subscriptions, so run it only when
