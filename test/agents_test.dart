@@ -268,11 +268,11 @@ reads = ["~/.claude/skills"]
     });
 
     test(
-      'the file an earlier LinuxMice wrote reads the same, and writes back',
+      'a settings file reads the same, and writes back',
       () {
         const text = r'''
 # Collections of agent skills (folders of SKILL.md folders), home-relative so
-# the same list holds on every device. `lmice skills`.
+# the same list holds on every device. `fluttairbar-cli skills`.
 collections = ["~/Documents/github/team/skills", "~/Documents/github/myskills"]
 instructions = "~/Documents/github/team/agents/AGENTS.md"
 
@@ -311,20 +311,16 @@ loaded = 'Base directory for this skill: [^"\\]*'
       expect(() => parseToml('a = "x\n'), throwsA(isA<TomlError>()));
     });
 
-    test('the earlier file is read until this tool writes its own', () {
+    test('the tool reads and writes only its own file', () {
       final root = Directory.systemTemp.createTempSync('fab-settings-');
       addTearDown(() => root.deleteSync(recursive: true));
       final local = tempLocal(root);
-      final legacy = File('${root.path}/.config/linuxmice/skills.toml')
-        ..createSync(recursive: true)
-        ..writeAsStringSync('collections = ["~/old"]\n');
       final store = SettingsStore(local);
-      expect(store.path, legacy.path);
-      expect(SkillSettings.parse(store.read()).collections, ['~/old']);
-      store.write(SkillSettings(collections: ['~/old', '~/new']).toToml());
       expect(store.path, store.ownPath);
-      expect(SkillSettings.parse(store.read()).collections, ['~/old', '~/new']);
-      expect(legacy.readAsStringSync(), 'collections = ["~/old"]\n');
+      expect(store.exists, isFalse);
+      expect(store.read(), '');
+      store.write(SkillSettings(collections: ['~/a', '~/b']).toToml());
+      expect(SkillSettings.parse(store.read()).collections, ['~/a', '~/b']);
       expect(
         () => SettingsStore(local, given: '-').write(''),
         throwsA(isA<StateError>()),

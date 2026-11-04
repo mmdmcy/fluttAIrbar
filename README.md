@@ -387,9 +387,7 @@ skill out of `install --all`; `on` links it again. `add` registers a folder,
 or clones a git URL into `~/Documents/github/NAME` first; `remove` only
 unregisters. `--settings FILE` reads other settings (`-` reads them from
 standard input, read only, so a fleet tool can apply one device's list on
-another); `skills settings` prints the settings in use. Settings written by
-LinuxMice before this (`~/.config/linuxmice/skills.toml`) are read until this
-file exists.
+another); `skills settings` prints the settings in use.
 
 **Quiz.** `quiz.txt` beside the shared instructions: a line starting with `?`
 is a question, the `=` lines under it are accepted answers (any one,
