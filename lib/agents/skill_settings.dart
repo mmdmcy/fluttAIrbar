@@ -247,10 +247,9 @@ class SkillSettings {
   }
 }
 
-/// Where the settings come from: this tool's own file, the file an earlier
-/// LinuxMice kept (read until this tool's own file is written), or standard
-/// input (`--settings -`, read only: a caller applies another device's
-/// settings here).
+/// Where the settings come from: this tool's own file, or standard input
+/// (`--settings -`, read only: a caller applies another device's settings
+/// here).
 class SettingsStore {
   SettingsStore(this.local, {this.given, this.name = 'skills.toml'});
 
@@ -262,19 +261,11 @@ class SettingsStore {
   String? _stdin;
 
   String get ownPath => '${local.configHome}/fluttairbar/$name';
-  String get legacyPath => '${local.home}/.config/linuxmice/$name';
 
   bool get fromStdin => given == '-';
 
-  /// The file read now: the one given, this tool's own, or the earlier one
-  /// while this tool has none.
-  String get path {
-    if (given != null) return given!;
-    if (!File(ownPath).existsSync() && File(legacyPath).existsSync()) {
-      return legacyPath;
-    }
-    return ownPath;
-  }
+  /// The file read now: the one given, or this tool's own.
+  String get path => given ?? ownPath;
 
   /// The settings text, empty when there is no file.
   String read() {
@@ -286,8 +277,7 @@ class SettingsStore {
 
   bool get exists => fromStdin || File(path).existsSync();
 
-  /// Writes this tool's own file (or the one given); the earlier LinuxMice
-  /// file is left as it was.
+  /// Writes this tool's own file (or the one given).
   void write(String text) {
     if (fromStdin) {
       throw StateError(

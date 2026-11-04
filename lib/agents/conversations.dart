@@ -114,11 +114,9 @@ class CopyState {
   final Local local;
 
   String get ownPath => '${local.stateHome}/fluttairbar/conversations.json';
-  String get legacyPath =>
-      '${local.home}/.local/state/linuxmice/conversations.json';
 
   List<Map<String, Object?>> read() {
-    for (final path in [ownPath, legacyPath]) {
+    for (final path in [ownPath]) {
       final file = File(path);
       if (!file.existsSync()) continue;
       try {
