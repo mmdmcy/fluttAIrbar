@@ -20,6 +20,7 @@ Inspired by [steipete/CodexBar](https://github.com/steipete/CodexBar) (macOS). f
 - Dark mode by default (toggle in header)
 - Refresh only on demand from the panel or tray menu
 - `fluttairbar-cli`: harness check and usage meters as text or JSON for scripts and fleet tools
+- Agent management in `fluttairbar-cli`: one collection of skills and one instructions file linked into every coding agent, a quiz of what each agent knows, and a kept, slim copy of Claude Code and Codex history on two devices ([Agent management](#agent-management))
 
 ## How auth works (no login here)
 
@@ -326,7 +327,107 @@ harness: `id`, `name`, `installed`, `path`, `currentVersion`, `latestVersion`,
   session it says so with state `error` instead of guessing.
 
 Exit codes: `0` when the command ran (also when a provider is signed out or
-expired), `1` when an update or sync failed, `64` for wrong usage.
+expired), `1` when an update, a sync or a change failed (or a quiz answer was
+not as expected), `3` when a change needs approval, `64` for wrong usage.
+
+### Agent management
+
+The same command line manages the coding agents on a device: one collection
+of [Agent Skills](https://agentskills.io) linked into every agent, one
+instructions file every agent starts with, a quiz of what an agent knows
+before it opens a project, and a kept copy of the Claude Code and Codex
+conversation history. It works on its own; a fleet tool can run it on each
+device over SSH with `--format json` and present the answers.
+
+```text
+fluttairbar-cli skills [settings] [--json]
+fluttairbar-cli skills install (SKILL... | --all) [--agent ID] [--replace] [-y|-n]
+fluttairbar-cli skills add ~/PATH|URL [-y|-n]
+fluttairbar-cli skills remove ~/PATH [-y|-n]
+fluttairbar-cli skills on|off SKILL [--agent ID] [-y|-n]
+fluttairbar-cli quiz [--agent ID] [--json]
+fluttairbar-cli conversations [pack | copy [-n]] [--json]
+```
+
+A change asks first: `-y` approves it, `-n` shows what it would do and
+changes nothing, and without a terminal to ask on it stops with exit `3`.
+`--json` is also spelled `--format json` or `-o json`; with `--json`, an error
+is `{"error": {"code", "exit", "message", "hint"}}` on stdout. `--with-text`
+adds the text view to the JSON as `text`.
+
+**Skills.** `~/.config/fluttairbar/skills.toml`:
+
+```toml
+collections = ["~/Documents/github/myskills", "~/Documents/github/team/skills"]
+instructions = "~/Documents/github/team/agents/AGENTS.md"
+
+[off]
+pi = ["safe-yeet"]       # skills switched off for one agent
+
+[[agent]]                # an agent the built-in table lacks, or a change to one
+id = "gemini"
+name = "Gemini CLI"
+dir = "~/.gemini/skills"
+reads = ["~/.agents/skills"]
+```
+
+Built in: Claude Code, Codex, OpenCode (it also reads `~/.claude/skills`), Pi
+(also `~/.agents/skills`) and Cursor Agent. `skills` reports
+(`fluttairbar.skills.v1`) the collections and their commit, and per skill and
+agent `linked`, `via DIR` (linked in another folder the agent reads), `copy`,
+`link -> TARGET`, `off` or `missing`, with how many sessions of the last 30
+days loaded it (from Claude Code, Codex and Pi history) and what keeps an
+agent from seeing it (a SKILL.md without a header, name or description).
+`install` links skills, and with `--all` the shared instructions file as each
+agent's own (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, ...), but refuses to
+link a file that is not there. Nothing is overwritten: a folder or file in the
+way is moved to `~/.local/share/fluttairbar/retired/` only with `--replace`.
+`off` removes one agent's link (never a copy, never the skill) and keeps the
+skill out of `install --all`; `on` links it again. `add` registers a folder,
+or clones a git URL into `~/Documents/github/NAME` first; `remove` only
+unregisters. `--settings FILE` reads other settings (`-` reads them from
+standard input, read only, so a fleet tool can apply one device's list on
+another); `skills settings` prints the settings in use. Settings written by
+LinuxMice before this (`~/.config/linuxmice/skills.toml`) are read until this
+file exists.
+
+**Quiz.** `quiz.txt` beside the shared instructions: a line starting with `?`
+is a question, the `=` lines under it are accepted answers (any one,
+case-insensitive), `#` lines are comments; an answer that appears in its own
+question is refused. Each agent with a one-shot mode (Claude Code, Codex) is
+asked every question from an empty folder with no tools, so only what it
+knows before opening a project counts. It uses the agents' own
+subscriptions: run it when you mean it. Exit `1` when an answer was not as
+expected.
+
+**Conversations.** History is kept, always: nothing deletes, prunes or leaves
+out a session, and a copy never touches its source. `pack` writes a slim copy
+of this device's history (Claude Code `~/.claude/projects` and
+`history.jsonl`; Codex `sessions`, `archived_sessions`, `history.jsonl`,
+`session_index.jsonl`) to `~/Backups/conversations/DEVICE/`: every word kept,
+screenshots replaced by a note of their size, gzip, only files that changed.
+`copy` packs both devices of each pair and rsyncs each side's folder to the
+other, never with `--delete`; the other device needs `fluttairbar-cli` too.
+`~/.config/fluttairbar/conversations.toml`:
+
+```toml
+bwlimit_kbps = 1000      # upload cap per copy in KB/s (0 = none)
+
+[[pair]]
+devices = ["laptop", "desktop"]
+
+[[extra]]                # a folder copied (compressed, as it is) with a device's history
+device = "desktop"
+path = "/srv/backups/old-sessions"
+```
+
+`copy` reaches the other device with `ssh -o BatchMode=yes NAME`;
+`--rsh NAME=COMMAND` and `--host NAME=USER@HOST` change that per device, and
+`--bwlimit KBPS` caps the upload when the settings set no cap. The status
+(`fluttairbar.conversations.v1`) lists the copies held here, the last copy in
+each direction and, in `behind`, each direction that keeps failing with for
+how many days. To copy every night, run `fluttairbar-cli conversations copy`
+from a systemd user timer or cron.
 
 ## Privacy
 

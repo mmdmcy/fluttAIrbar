@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import '../services/harness_catalog.dart';
+import 'agents_command.dart';
 import 'harnesses_command.dart';
 import 'usage_command.dart';
 import 'version.dart';
@@ -13,6 +14,13 @@ fluttairbar-cli: AI tools on this device, read-only unless you ask.
 Usage:
   fluttairbar-cli harnesses [--json] [--only ID,ID] [--update] [--sync-codex-daemon]
   fluttairbar-cli usage [--json]
+  fluttairbar-cli skills [settings] [--json]
+  fluttairbar-cli skills install (SKILL... | --all) [--agent ID] [--replace] [-y|-n]
+  fluttairbar-cli skills add ~/PATH|URL [-y|-n]
+  fluttairbar-cli skills remove ~/PATH [-y|-n]
+  fluttairbar-cli skills on|off SKILL [--agent ID] [-y|-n]
+  fluttairbar-cli quiz [--agent ID] [--json]
+  fluttairbar-cli conversations [pack | copy [-n]] [--json]
   fluttairbar-cli version
   fluttairbar-cli --help
 
@@ -26,12 +34,45 @@ Commands:
              on this device. --json prints schema fluttairbar.usage.v1.
              Never prints tokens, emails or account ids, and never rewrites
              a credentials file.
+  skills     Agent skills (folders with a SKILL.md) from collections listed
+             in ~/.config/fluttairbar/skills.toml, linked into every coding
+             agent here (Claude Code, Codex, OpenCode, Pi, Cursor Agent, more
+             with [[agent]]): per skill and agent linked, via another folder
+             the agent reads, a copy, off or missing, and how often each
+             agent loaded it in the last 30 days. `instructions` in the
+             settings names one file linked as every agent's global
+             instructions. install links (a folder in the way is moved to
+             ~/.local/share/fluttairbar/retired only with --replace), add
+             registers a folder or clones a git URL into ~/Documents/github,
+             remove unregisters (folders and links stay), off removes one
+             agent's link and keeps the skill out of install --all, on
+             links it again. settings prints the settings in use;
+             --settings FILE (- for standard input) reads others, read
+             only for -.
+  quiz       Asks every agent here with an ask line the questions in
+             quiz.txt beside the shared instructions, in a fresh session
+             from an empty folder with no tools, and checks the answers.
+             Uses the agents' own subscriptions: run it when you mean it.
+  conversations
+             Claude Code and Codex history, kept: pack writes a slim copy to
+             ~/Backups/conversations/DEVICE (every word, screenshots left
+             out, gzip, only changed files, never deletes); copy packs both
+             devices of each [[pair]] in ~/.config/fluttairbar/
+             conversations.toml and rsyncs each side to the other over SSH,
+             never --delete (--rsh NAME=COMMAND and --host NAME=USER@HOST
+             say how to reach a device, --bwlimit KBPS caps it when the
+             settings set none).
   version    Print the version.
+
+JSON: --json, --format json or -o json. A change asks first: -y approves it,
+-n shows what it would do and changes nothing, and without a terminal to ask
+on it stops with exit 3. --with-text adds the text view to the JSON.
 
 Harness ids: $ids
 
-Exit codes: 0 done (also when a provider is signed out), 1 an update or sync
-failed, 64 wrong usage.
+Exit codes: 0 done (also when a provider is signed out), 1 failed (an update,
+a sync, a change, or a quiz answer not as expected), 3 needs approval, 64
+wrong usage.
 ''';
 }
 
@@ -48,7 +89,21 @@ Future<int> runCli(
     return 64;
   }
   final command = args.first;
-  final rest = args.sublist(1);
+  // `--format json` and `-o json` mean `--json` for every command.
+  final rest = <String>[];
+  for (var i = 1; i < args.length; i++) {
+    final arg = args[i];
+    if ((arg == '--format' || arg == '-o') &&
+        i + 1 < args.length &&
+        args[i + 1] == 'json') {
+      rest.add('--json');
+      i++;
+    } else if (arg == '--format=json' || arg == '-ojson') {
+      rest.add('--json');
+    } else {
+      rest.add(arg);
+    }
+  }
   if (command == '--help' ||
       command == '-h' ||
       command == 'help' ||
@@ -62,6 +117,12 @@ Future<int> runCli(
       return runHarnessesCommand(rest, out: output, err: errors);
     case 'usage':
       return runUsageCommand(rest, out: output, err: errors);
+    case 'skills':
+      return runSkillsCommand(rest, out: output, err: errors);
+    case 'quiz':
+      return runQuizCommand(rest, out: output, err: errors);
+    case 'conversations':
+      return runConversationsCommand(rest, out: output, err: errors);
     case 'version':
     case '--version':
       output.writeln('fluttairbar-cli $fluttairbarVersion');
