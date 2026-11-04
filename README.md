@@ -20,7 +20,7 @@ Inspired by [steipete/CodexBar](https://github.com/steipete/CodexBar) (macOS). f
 - Dark mode by default (toggle in header)
 - Refresh only on demand from the panel or tray menu
 - `fluttairbar-cli`: harness check and usage meters as text or JSON for scripts and fleet tools
-- Agent management in `fluttairbar-cli`: one collection of skills and one instructions file linked into every coding agent, a quiz of what each agent knows, and a kept, slim copy of Claude Code and Codex history on two devices ([Agent management](#agent-management))
+- Agent management in `fluttairbar-cli`: one collection of skills and one instructions file linked into every coding agent, agent hooks from a collection added to each agent's settings, a quiz of what each agent knows, and a kept, slim copy of Claude Code and Codex history on two devices ([Agent management](#agent-management))
 
 ## How auth works (no login here)
 
@@ -334,7 +334,8 @@ not as expected), `3` when a change needs approval, `64` for wrong usage.
 
 The same command line manages the coding agents on a device: one collection
 of [Agent Skills](https://agentskills.io) linked into every agent, one
-instructions file every agent starts with, a quiz of what an agent knows
+instructions file every agent starts with, hooks added to each agent's own
+settings, a quiz of what an agent knows
 before it opens a project, and a kept copy of the Claude Code and Codex
 conversation history. It works on its own; a fleet tool can run it on each
 device over SSH with `--format json` and present the answers.
@@ -345,6 +346,10 @@ fluttairbar-cli skills install (SKILL... | --all) [--agent ID] [--replace] [-y|-
 fluttairbar-cli skills add ~/PATH|URL [-y|-n]
 fluttairbar-cli skills remove ~/PATH [-y|-n]
 fluttairbar-cli skills on|off SKILL [--agent ID] [-y|-n]
+fluttairbar-cli hooks [--json]
+fluttairbar-cli hooks install (HOOK... | --all) [--replace] [-y|-n]
+fluttairbar-cli hooks remove HOOK... [-y|-n]
+fluttairbar-cli hooks add ~/PATH [-y|-n]
 fluttairbar-cli quiz [--agent ID] [--json]
 fluttairbar-cli conversations [pack | copy [-n]] [--json]
 ```
@@ -388,6 +393,37 @@ or clones a git URL into `~/Documents/github/NAME` first; `remove` only
 unregisters. `--settings FILE` reads other settings (`-` reads them from
 standard input, read only, so a fleet tool can apply one device's list on
 another); `skills settings` prints the settings in use.
+
+**Hooks.** A hook collection is a folder with a `hooks.toml`:
+
+```toml
+[[hook]]
+name = "promise-check"
+agent = "claude"             # the agent id that runs it
+event = "Stop"               # as that agent spells it
+command = "python3 -I {dir}/promise-check.py"   # {dir}: this folder
+timeout = 10                 # optional, seconds
+matcher = "Bash"             # optional, for tool events
+description = "What it does"
+```
+
+`~/.config/fluttairbar/hooks.toml` lists the collections
+(`collections = ["~/Documents/github/team/agents/hooks"]`); `hooks add
+~/PATH` registers one. An agent has hooks when its entry in the agent table
+names a hook settings file, a JSON file with a `hooks` object in Claude
+Code's shape: built in only for Claude Code (`~/.claude/settings.json`); an
+`[[agent]]` in skills.toml can set `hooks = "~/PATH"` for another agent that
+reads the same shape. `hooks` reports (`fluttairbar.hooks.v1`) each hook's
+state for its agent: `installed`, `missing`, `different` (its command with
+another event, matcher or timeout), `no hooks` (the agent has none),
+`not here`, `unknown agent` or `unreadable`; hooks in an agent's settings that
+no collection declares are listed as `others`. A hook is known by its
+command. `install` adds a missing hook once, as a matcher group of its own;
+`remove` takes every entry of its command out. Both keep the file as it was
+next to it (`settings.json.bak-DATE`, then `-2`, `-3`, ...), keep its
+permissions and a link to it, change nothing else, and refuse a file that is
+not valid JSON or a result that does not read back as intended; a
+`different` hook is put as `hooks.toml` says only with `--replace`.
 
 **Quiz.** `quiz.txt` beside the shared instructions: a line starting with `?`
 is a question, the `=` lines under it are accepted answers (any one,
