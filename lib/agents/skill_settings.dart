@@ -96,6 +96,8 @@ const builtinAgents = [
       '1',
       '--disallowedTools',
       'Bash,Read,Edit,Write,Grep,Glob,WebFetch,WebSearch,Task',
+      // A quiz answer is not a conversation to keep in the history.
+      '--no-session-persistence',
     ],
     // Claude Code writes this line into the session when it loads a skill.
     loaded: r'Base directory for this skill: [^"\\]*',
@@ -109,6 +111,8 @@ const builtinAgents = [
     ask: [
       'codex',
       'exec',
+      // A quiz answer is not a conversation to keep in the history.
+      '--ephemeral',
       '--skip-git-repo-check',
       '--sandbox',
       'read-only',
