@@ -379,11 +379,14 @@ Future<Map<String, Object?>> pack(
 // ------------------------------------------------------------------ copy
 
 /// How to reach a device: the SSH command (shell words, as rsync's `-e`
-/// takes them) and the host to give it.
+/// takes them), the host to give it, and what packs there where this CLI is
+/// not installed (a shell command that writes the same slim copy and prints
+/// the same JSON report; a device this CLI has no build for).
 class Reach {
-  const Reach(this.rsh, this.host);
+  const Reach(this.rsh, this.host, {this.pack});
   final String rsh;
   final String host;
+  final String? pack;
 
   /// Runs [command] there with this SSH.
   Future<ProcessResult> run(String command, {Duration? timeout}) => runShell(
@@ -395,9 +398,10 @@ class Reach {
 /// The default SSH: the user's own configuration, never a password prompt.
 const defaultRsh = 'ssh -o BatchMode=yes -o ConnectTimeout=10';
 
-/// Finds fluttairbar-cli on the other device and runs it there.
-String remoteCli(String args) =>
-    'for f in "\$HOME/.local/bin/fluttairbar-cli" "\$(command -v fluttairbar-cli 2>/dev/null)" /opt/homebrew/bin/fluttairbar-cli /usr/local/bin/fluttairbar-cli; do [ -n "\$f" ] && [ -x "\$f" ] && exec "\$f" $args; done; echo "error=fluttairbar-cli is not installed there"; exit 127';
+/// Finds fluttairbar-cli on the other device and runs it there; where it
+/// is not installed, [otherwise] runs instead, if given.
+String remoteCli(String args, {String? otherwise}) =>
+    'for f in "\$HOME/.local/bin/fluttairbar-cli" "\$(command -v fluttairbar-cli 2>/dev/null)" /opt/homebrew/bin/fluttairbar-cli /usr/local/bin/fluttairbar-cli; do [ -n "\$f" ] && [ -x "\$f" ] && exec "\$f" $args; done; ${otherwise ?? 'echo "error=fluttairbar-cli is not installed there"; exit 127'}';
 
 Future<String> _rsync(Reach reach, int limit, String from, String to) async {
   final words = [
@@ -449,7 +453,7 @@ Map<String, Object?> _run(
 
 /// Both sides of every pair this device is in, packed and copied to each
 /// other. Never deletes anything. [reach] says how to get to a device
-/// (default: `ssh NAME`).
+/// (default: `ssh NAME`) and what packs there without this CLI.
 Future<Map<String, Object?>> copy({
   required Local local,
   required ConversationSettings settings,
@@ -498,7 +502,7 @@ Future<Map<String, Object?>> copy({
     }
     try {
       final remote = await via.run(
-        remoteCli('conversations pack --format json'),
+        remoteCli('conversations pack --format json', otherwise: via.pack),
       );
       final out = '${remote.stdout}';
       if (remote.exitCode == 255) {

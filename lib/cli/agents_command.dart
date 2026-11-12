@@ -25,6 +25,7 @@ class AgentOptions {
   int? bwlimit;
   final rsh = <String, String>{};
   final hosts = <String, String>{};
+  final pack = <String, String>{};
   final words = <String>[];
 }
 
@@ -101,6 +102,15 @@ AgentOptions parseAgentOptions(List<String> args) {
           throw CliFailure(64, '--host $name takes USER@HOST or HOST');
         }
         opts.hosts[name] = host;
+      case '--pack':
+        final (name, command) = pair();
+        if (command.trim().isEmpty) {
+          throw CliFailure(
+            64,
+            '--pack $name takes the command that packs there',
+          );
+        }
+        opts.pack[name] = command;
       default:
         if (arg.startsWith('-') && arg.length > 1) {
           throw CliFailure(64, 'unknown option $arg');
@@ -555,7 +565,7 @@ Future<int> runConversationsCommand(
       final report = await conversations.pack(here, settings);
       _emit(opts, out, report, conversations.textPack(report));
     case 'copy':
-      final names = {...opts.rsh.keys, ...opts.hosts.keys};
+      final names = {...opts.rsh.keys, ...opts.hosts.keys, ...opts.pack.keys};
       final report = await conversations.copy(
         local: here,
         settings: settings,
@@ -566,6 +576,7 @@ Future<int> runConversationsCommand(
             name: conversations.Reach(
               opts.rsh[name] ?? conversations.defaultRsh,
               opts.hosts[name] ?? name,
+              pack: opts.pack[name],
             ),
         },
       );

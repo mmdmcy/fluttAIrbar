@@ -1174,6 +1174,93 @@ command = "sh {dir}/note.sh"
         remoteCli('x'),
         contains('fluttairbar-cli is not installed there'),
       );
+      // Where it is not installed, what packs there instead.
+      final otherwise = remoteCli('x', otherwise: 'other-packer --json');
+      expect(otherwise, endsWith('done; other-packer --json'));
+      expect(otherwise, isNot(contains('not installed there')));
     });
+
+    test('--pack names what packs on a device without this CLI', () {
+      final opts = parseAgentOptions([
+        'copy',
+        '--pack',
+        'mac=other-packer --json',
+      ]);
+      expect(opts.pack, {'mac': 'other-packer --json'});
+      expect(
+        () => parseAgentOptions(['copy', '--pack', 'mac= ']),
+        throwsA(isA<CliFailure>().having((f) => f.exit, 'exit', 64)),
+      );
+      expect(
+        () => parseAgentOptions(['copy', '--pack', 'nothing']),
+        throwsA(isA<CliFailure>()),
+      );
+    });
+
+    test(
+      'a device without this CLI is packed by --pack and copied both ways',
+      () async {
+        final root = Directory.systemTemp.createTempSync('fab-pack-');
+        addTearDown(() => root.deleteSync(recursive: true));
+        final local = tempLocal(Directory('${root.path}/here')..createSync());
+        File('${local.home}/.claude/history.jsonl')
+          ..createSync(recursive: true)
+          ..writeAsStringSync('{"display":"here"}\n');
+        final peer = '${root.path}/peer';
+        // The other device's own packer: the same slim copy, a report.
+        File('$peer/bin/other-packer')
+          ..createSync(recursive: true)
+          ..writeAsStringSync(
+            '#!/bin/sh\nset -e\nmkdir -p "\$HOME/Backups/conversations/other/claude"\n'
+            'printf \'{"display":"there"}\\n\' | gzip > "\$HOME/Backups/conversations/other/claude/history.jsonl.gz"\n'
+            'echo \'{"schema_version":"other.pack.v1","packed":1}\'\n',
+          );
+        // ssh to "other" is a shell in the peer's home, without this CLI
+        // on its PATH.
+        File('$peer/bin/fake-rsh')
+          ..createSync(recursive: true)
+          ..writeAsStringSync(
+            '#!/bin/sh\nshift\ncd "$peer" && HOME="$peer" PATH=/usr/bin:/bin exec sh -c "\$*"\n',
+          );
+        await Process.run('chmod', [
+          '+x',
+          '$peer/bin/other-packer',
+          '$peer/bin/fake-rsh',
+        ]);
+        final report = await copy(
+          local: local,
+          settings: ConversationSettings.parse(
+            '[[pair]]\ndevices = ["testbox", "other"]\n',
+          ),
+          execute: true,
+          reach: {
+            'other': Reach(
+              '$peer/bin/fake-rsh',
+              'other',
+              pack: '"\$HOME/bin/other-packer"',
+            ),
+          },
+        );
+        expect(
+          (report['runs'] as List).map(
+            (r) => '${(r as Map)['from']}>${r['to']} ${r['result']}',
+          ),
+          ['other>testbox ok', 'testbox>other ok'],
+        );
+        final pulled = File(
+          '${local.home}/Backups/conversations/other/claude/history.jsonl.gz',
+        );
+        expect(
+          utf8.decode(gzip.decode(pulled.readAsBytesSync())),
+          '{"display":"there"}\n',
+        );
+        expect(
+          File(
+            '$peer/Backups/conversations/testbox/claude/history.jsonl.gz',
+          ).existsSync(),
+          isTrue,
+        );
+      },
+    );
   });
 }
