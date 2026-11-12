@@ -457,7 +457,12 @@ path = "/srv/backups/old-sessions"
 
 `copy` reaches the other device with `ssh -o BatchMode=yes NAME`;
 `--rsh NAME=COMMAND` and `--host NAME=USER@HOST` change that per device, and
-`--bwlimit KBPS` caps the upload when the settings set no cap. The status
+`--bwlimit KBPS` caps the upload when the settings set no cap. A device
+fluttairbar-cli has no build for (Dart compiles only for the system it runs
+on) can still be in a pair: `--pack NAME=COMMAND` names a shell command that
+packs there when fluttairbar-cli is not installed on it; it must write the
+same slim copy to `~/Backups/conversations/NAME` and print a JSON report with
+a `schema_version`. The status
 (`fluttairbar.conversations.v1`) lists the copies held here, the last copy in
 each direction and, in `behind`, each direction that keeps failing with for
 how many days. To copy every night, run `fluttairbar-cli conversations copy`

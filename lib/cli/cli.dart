@@ -73,8 +73,9 @@ Commands:
              devices of each [[pair]] in ~/.config/fluttairbar/
              conversations.toml and rsyncs each side to the other over SSH,
              never --delete (--rsh NAME=COMMAND and --host NAME=USER@HOST
-             say how to reach a device, --bwlimit KBPS caps it when the
-             settings set none).
+             say how to reach a device, --pack NAME=COMMAND what packs
+             there when fluttairbar-cli is not installed on it, --bwlimit
+             KBPS caps it when the settings set none).
   version    Print the version.
 
 JSON: --json, --format json or -o json. A change asks first: -y approves it,
