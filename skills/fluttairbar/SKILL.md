@@ -66,7 +66,9 @@ fluttairbar-cli conversations --json        # history kept here, last copies, `b
 `skills` lists per skill and agent `linked`, `via DIR`, `copy`, `off` or
 `missing`, and for each agent whether its instructions file is `linked` to
 the shared one. `conversations` shows `behind`: directions of the copy that
-keep failing, with days. `hooks` lists each declared hook's `state` for
+keep failing, with days, and `excluded`: per entry of `exclude` in
+conversations.toml, how many projects it keeps off the other device
+(never packed or copied; copies made before stay). `hooks` lists each declared hook's `state` for
 its agent; an agent without hook settings is `no hooks`, never guessed.
 `install`, `add`, `remove`, `on`, `off` (skills and hooks) and
 `conversations copy` change files: run them with `-n` first, show the plan,

@@ -1,7 +1,7 @@
 /// `fluttairbar-cli conversations`: Claude Code and Codex conversation
 /// history, kept on two devices. History is kept, always: nothing here
-/// deletes, prunes or leaves out a session, and a copy never touches its
-/// source.
+/// deletes or prunes a session, only the projects the settings exclude are
+/// left out, and a copy never touches its source.
 ///
 /// `pack` makes a slim copy of this device's history in
 /// `~/Backups/conversations/DEVICE/`: every session's text is kept, the
@@ -24,6 +24,10 @@
 ///
 /// # Upload cap per copy in KB/s (0 = none).
 /// bwlimit_kbps = 1000
+///
+/// # Projects never packed or copied, in either direction: a project whose
+/// # path contains one of these (see [LeftOut]).
+/// exclude = ["/Documents/acme", "acme-intern"]
 /// ```
 ///
 /// What is read: Claude's `~/.claude/projects` and `history.jsonl`; Codex's
@@ -67,11 +71,25 @@ class ConversationSettings {
     this.pairs = const [],
     this.extras = const [],
     this.bwlimitKbps,
+    this.exclude = const [],
   });
 
   final List<(String, String)> pairs;
   final List<(String device, String path)> extras;
   final int? bwlimitKbps;
+
+  /// Parts of a project's path: a project that contains one is never packed
+  /// or copied.
+  final List<String> exclude;
+
+  /// These settings with [more] exclude entries (from the command line, or
+  /// from the device that runs the copy).
+  ConversationSettings excluding(Iterable<String> more) => ConversationSettings(
+    pairs: pairs,
+    extras: extras,
+    bwlimitKbps: bwlimitKbps,
+    exclude: {...exclude, ...more}.toList(),
+  );
 
   factory ConversationSettings.parse(String text) {
     final toml = parseToml(text);
@@ -94,12 +112,274 @@ class ConversationSettings {
     if (limit != null && (limit is! int || limit < 0)) {
       throw TomlError('bwlimit_kbps should be a number of KB/s (0 = none)');
     }
+    final exclude = tomlStrings(toml['exclude'], 'exclude');
+    for (final text in exclude) {
+      if (!excludeText(text)) throw TomlError(excludeRefused(text));
+    }
     return ConversationSettings(
       pairs: pairs,
       extras: extras,
       bwlimitKbps: limit as int?,
+      exclude: exclude.toSet().toList(),
     );
   }
+}
+
+/// Whether [text] can be an exclude entry: a part of a path with a letter or
+/// a digit in it (`/` alone would leave out every project).
+bool excludeText(String text) => RegExp('[A-Za-z0-9]').hasMatch(text);
+
+String excludeRefused(String text) =>
+    'exclude "$text" names no project: give a part of its path with a letter or digit, such as "/Documents/acme"';
+
+/// A path spelled the way Claude Code names a project's folder: every
+/// character other than a letter or digit becomes `-`.
+String claudeName(String path) => path.replaceAll(RegExp('[^A-Za-z0-9]'), '-');
+
+/// The history files with a line per prompt or session of every project.
+const _historyFiles = {
+  'claude/history.jsonl',
+  'codex/history.jsonl',
+  'codex/session_index.jsonl',
+};
+
+/// What the exclude list leaves out: the Claude project folders and Codex
+/// sessions of every project whose path contains one of its entries, found
+/// in this device's history and in its slim copy (a copy made before the
+/// entry was added stays where it is, and is not sent on), and their lines in
+/// the history files.
+///
+/// A project's path is compared the way Claude Code spells it in a folder
+/// name, which cannot tell `/`, `.`, `_` and `-` apart, and without regard to
+/// case: an entry leaves out at least the projects it names. Claude's project
+/// folder name is its path; a Codex session names its own (`cwd`), and a
+/// Codex session that names none is copied.
+class LeftOut {
+  LeftOut(this.exclude);
+
+  final List<String> exclude;
+
+  /// Left out of the copy, relative to the slim folder: a Claude project as
+  /// `claude/projects/NAME/`, a Codex session as the name of its copy.
+  final paths = <String>{};
+
+  /// The Codex sessions left out, by id: their history lines go too.
+  final codexIds = <String>{};
+
+  final _projects = <String, Set<String>>{};
+  final _sessions = <String, Set<String>>{};
+
+  late final _spelled = [
+    for (final text in exclude) (text, claudeName(text).toLowerCase()),
+  ];
+
+  /// The exclude entry that leaves out the project at [path] (a path, or a
+  /// Claude project folder's name), or null.
+  String? matchOf(String path) {
+    final spelled = claudeName(path).toLowerCase();
+    for (final (text, part) in _spelled) {
+      if (spelled.contains(part)) return text;
+    }
+    return null;
+  }
+
+  /// Whether the copy named [relative] (inside the slim folder) is left out.
+  bool leavesOut(String relative) {
+    if (paths.contains(relative)) return true;
+    final parts = relative.split('/');
+    return parts.length > 3 &&
+        parts[0] == 'claude' &&
+        parts[1] == 'projects' &&
+        paths.contains('claude/projects/${parts[2]}/');
+  }
+
+  /// Whether a history record belongs to a project left out: Claude's history
+  /// names its project, Codex's its session.
+  bool dropsLine(Object? record) {
+    if (record is! Map) return false;
+    bool session(Object? id) =>
+        id is String && codexIds.contains(id.toLowerCase());
+    final project = record['project'];
+    return (project is String && matchOf(project) != null) ||
+        session(record['session_id']) ||
+        session(record['id']);
+  }
+
+  void _project(String match, String project) =>
+      _projects.putIfAbsent(match, () => {}).add(project);
+
+  void _session(String match, String relative) =>
+      _sessions.putIfAbsent(match, () => {}).add(relative);
+
+  /// Per entry, how many projects and sessions it leaves out (0 for an entry
+  /// that names nothing here, which is worth a look).
+  List<Map<String, Object?>> toJson() => [
+    for (final text in exclude)
+      {
+        'match': text,
+        'projects': _projects[text]?.length ?? 0,
+        'sessions': _sessions[text]?.length ?? 0,
+      },
+  ];
+}
+
+final _sessionId = RegExp(
+  r'([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\.jsonl(\.gz)?$',
+);
+
+List<String> _folders(String path) {
+  try {
+    return [
+      for (final entry in Directory(path).listSync(followLinks: false))
+        if (entry is Directory) entry.path.split('/').last,
+    ];
+  } on FileSystemException {
+    return const [];
+  }
+}
+
+/// What [exclude] leaves out of this device's history and of its slim copy
+/// in [folder].
+LeftOut findLeftOut(Local local, List<String> exclude, String folder) {
+  final left = LeftOut(exclude);
+  if (exclude.isEmpty) return left;
+  // Claude: the project folder's name is its path.
+  final names = {
+    ..._folders('${local.home}/.claude/projects'),
+    ..._folders('$folder/claude/projects'),
+  };
+  for (final name in names) {
+    final match = left.matchOf(name);
+    if (match == null) continue;
+    left.paths.add('claude/projects/$name/');
+    left._project(match, name);
+    for (final base in [
+      '${local.home}/.claude/projects/$name',
+      '$folder/claude/projects/$name',
+    ]) {
+      for (final file in filesBelow(base)) {
+        if (!file.endsWith('.jsonl') && !file.endsWith('.jsonl.gz')) continue;
+        final rest = file.substring(base.length + 1);
+        left._session(
+          match,
+          '$name/${rest.replaceFirst(RegExp(r'\.gz$'), '')}',
+        );
+      }
+    }
+  }
+  // Codex: each session names the folder it ran in; a copy whose session is
+  // gone here is read for it.
+  void codex(String relative, String path) {
+    final cwd = sessionCwd(path);
+    final match = cwd == null ? null : left.matchOf(cwd);
+    if (match == null) return;
+    left.paths.add('$relative.gz');
+    left._project(match, claudeName(cwd!));
+    left._session(match, relative);
+    final id = _sessionId.firstMatch(path)?.group(1);
+    if (id != null) left.codexIds.add(id.toLowerCase());
+  }
+
+  for (final from in ['sessions', 'archived_sessions']) {
+    final seen = <String>{};
+    final base = '${local.home}/.codex/$from';
+    for (final source in filesBelow(base)) {
+      if (!source.endsWith('.jsonl')) continue;
+      final relative = 'codex/$from/${source.substring(base.length + 1)}';
+      seen.add(relative);
+      codex(relative, source);
+    }
+    final copies = '$folder/codex/$from';
+    for (final copy in filesBelow(copies)) {
+      if (!copy.endsWith('.jsonl.gz')) continue;
+      final relative =
+          'codex/$from/${copy.substring(copies.length + 1, copy.length - 3)}';
+      if (!seen.contains(relative)) codex(relative, copy);
+    }
+  }
+  return left;
+}
+
+/// How a Codex session names its folder, and the byte that ends the name: a
+/// record's `"cwd":"…"`, and in sessions older than that, `<cwd>…</cwd>` in
+/// the environment it was told about. Either sits inside a JSON string.
+final _cwdKeys = [
+  (ascii.encode('"cwd":"'), 0x22),
+  (ascii.encode('<cwd>'), 0x3c),
+];
+
+/// Finds the first folder name in a stream of bytes.
+class _CwdFinder implements Sink<List<int>> {
+  String? cwd;
+  Uint8List _rest = Uint8List(0);
+
+  @override
+  void add(List<int> chunk) {
+    if (cwd != null) return;
+    final bytes =
+        (BytesBuilder(copy: false)
+              ..add(_rest)
+              ..add(chunk))
+            .takeBytes();
+    var at = -1, start = 0, end = 0;
+    for (final (key, last) in _cwdKeys) {
+      final found = _indexOf(bytes, key);
+      if (found >= 0 && (at < 0 || found < at)) {
+        (at, start, end) = (found, found + key.length, last);
+      }
+    }
+    if (at < 0) {
+      // Keep what could be the start of a key cut by the chunk's end.
+      final keep = bytes.length - 6;
+      _rest = keep > 0 ? Uint8List.sublistView(bytes, keep) : bytes;
+      return;
+    }
+    for (var i = start; i < bytes.length; i++) {
+      if (bytes[i] == 0x5c) {
+        i++; // an escaped character
+        continue;
+      }
+      if (bytes[i] != end) continue;
+      try {
+        final escaped = utf8.decode(Uint8List.sublistView(bytes, start, i));
+        cwd = jsonDecode('"$escaped"') as String;
+      } on Object {
+        cwd = '';
+      }
+      return;
+    }
+    // The name goes on in the next chunk.
+    _rest = Uint8List.sublistView(bytes, at);
+  }
+
+  @override
+  void close() {}
+}
+
+/// The folder a Codex session ran in: the first one its records name (its
+/// `session_meta` or a `turn_context`, in older sessions the environment
+/// context), read from the start of the file, and through gzip for a `.gz`
+/// copy. Null when it names none.
+String? sessionCwd(String path) {
+  final found = _CwdFinder();
+  RandomAccessFile? file;
+  try {
+    file = File(path).openSync();
+    final Sink<List<int>> input = path.endsWith('.gz')
+        ? gzip.decoder.startChunkedConversion(found)
+        : found;
+    while (found.cwd == null) {
+      final chunk = file.readSync(1 << 16);
+      if (chunk.isEmpty) break;
+      input.add(chunk);
+    }
+  } on Object {
+    // Unreadable or broken: what was found so far counts.
+  } finally {
+    file?.closeSync();
+  }
+  final cwd = found.cwd;
+  return cwd == null || cwd.isEmpty ? null : cwd;
 }
 
 List<Map<String, Object?>> _tables(Object? value, String name) {
@@ -211,16 +491,19 @@ Object? stripImages(Object? value, List<int> count) {
 
 final _base64Word = ascii.encode('base64');
 
-bool _contains(List<int> haystack, List<int> needle) {
+int _indexOf(List<int> haystack, List<int> needle) {
   outer:
   for (var i = 0; i + needle.length <= haystack.length; i++) {
     for (var j = 0; j < needle.length; j++) {
       if (haystack[i + j] != needle[j]) continue outer;
     }
-    return true;
+    return i;
   }
-  return false;
+  return -1;
 }
+
+bool _contains(List<int> haystack, List<int> needle) =>
+    _indexOf(haystack, needle) >= 0;
 
 /// One transcript line without its screenshots; a line that is not JSON is
 /// kept as it is.
@@ -249,7 +532,15 @@ String extraName(String path) => path
     .replaceAll(RegExp(r'[^A-Za-z0-9._]'), '-');
 
 /// Writes the slim copy of [source] to [target] (through a temporary file).
-Future<void> packFile(String source, String target, List<int> images) async {
+/// A line whose record [drop] says no to is left out and counted in
+/// [dropped].
+Future<void> packFile(
+  String source,
+  String target,
+  List<int> images, {
+  bool Function(Object? record)? drop,
+  List<int>? dropped,
+}) async {
   final parent = File(target).parent..createSync(recursive: true);
   final temporary = '${parent.path}/.${target.split('/').last}.part';
   if (alreadyCompressed(source)) {
@@ -259,7 +550,19 @@ Future<void> packFile(String source, String target, List<int> images) async {
     final gzipped = GZipCodec(level: 6).encoder.startChunkedConversion(sink);
     final transcript = source.endsWith('.jsonl');
     final pending = BytesBuilder(copy: false);
+    bool drops(List<int> line) {
+      try {
+        return drop!(jsonDecode(utf8.decode(line)));
+      } on Object {
+        return false; // not a record: kept as it is
+      }
+    }
+
     void emit(List<int> line, bool newline) {
+      if (drop != null && drops(line)) {
+        if (dropped != null) dropped[0]++;
+        return;
+      }
       gzipped.add(transcript ? slimLine(line, images) : line);
       if (newline) gzipped.add(const [10]);
     }
@@ -295,13 +598,17 @@ Future<void> packFile(String source, String target, List<int> images) async {
   File(temporary).renameSync(target);
 }
 
-/// This device's slim copy, brought up to date.
+/// This device's slim copy, brought up to date. The projects the exclude
+/// list names are not packed, and their lines are left out of the history
+/// files (rewritten then at every pack); their copies made before stay, and
+/// `excluded_paths` names them so a copy leaves them where they are.
 Future<Map<String, Object?>> pack(
   Local local,
   ConversationSettings settings,
 ) async {
   final folder = '${local.home}/$backupRoot/${local.device}';
   Directory(folder).createSync(recursive: true);
+  final left = findLeftOut(local, settings.exclude, folder);
   final manifestPath = '$folder/$_manifestName';
   final manifest = <String, Object?>{};
   try {
@@ -323,6 +630,10 @@ Future<Map<String, Object?>> pack(
     'copy_bytes': 0,
     'images_left_out': 0,
     'sessions': 0,
+    'exclude': settings.exclude,
+    'excluded': left.toJson(),
+    'excluded_paths': left.paths.toList()..sort(),
+    'history_lines_left_out': 0,
   };
   void add(String key, int amount) =>
       report[key] = (report[key] as int) + amount;
@@ -332,6 +643,7 @@ Future<Map<String, Object?>> pack(
       if (device == local.device) (path, 'extra/${extraName(path)}'),
   ];
   final images = [0];
+  final dropped = [0];
   for (final (root, into) in roots) {
     if (FileSystemEntity.typeSync(root) == FileSystemEntityType.notFound) {
       continue;
@@ -339,13 +651,19 @@ Future<Map<String, Object?>> pack(
     for (final source in filesBelow(root)) {
       final rest = source == root ? '' : source.substring(root.length + 1);
       final relative = rest.isEmpty ? into : '$into/$rest';
+      if (left.leavesOut(copyName(relative, source))) continue;
       final state = fileState(source);
       if (state == null) continue;
       if (source.endsWith('.jsonl')) add('sessions', 1);
       add('original_bytes', state.$1);
       final target = '$folder/${copyName(relative, source)}';
       final known = manifest[relative];
+      // With an exclude list the history files are written again each
+      // time: which lines go depends on the list, not only on the file.
+      final filtered =
+          settings.exclude.isNotEmpty && _historyFiles.contains(relative);
       final unchanged =
+          !filtered &&
           known is List &&
           known.length == 2 &&
           known[0] == state.$1 &&
@@ -355,7 +673,13 @@ Future<Map<String, Object?>> pack(
         add('unchanged', 1);
       } else {
         try {
-          await packFile(source, target, images);
+          await packFile(
+            source,
+            target,
+            images,
+            drop: filtered ? left.dropsLine : null,
+            dropped: dropped,
+          );
           manifest[relative] = [state.$1, state.$2];
           add('packed', 1);
         } on Object catch (error) {
@@ -370,6 +694,7 @@ Future<Map<String, Object?>> pack(
     }
   }
   report['images_left_out'] = images[0];
+  report['history_lines_left_out'] = dropped[0];
   final temporary = '$manifestPath.part';
   File(temporary).writeAsStringSync(jsonEncode(manifest));
   File(temporary).renameSync(manifestPath);
@@ -403,23 +728,50 @@ const defaultRsh = 'ssh -o BatchMode=yes -o ConnectTimeout=10';
 String remoteCli(String args, {String? otherwise}) =>
     'for f in "\$HOME/.local/bin/fluttairbar-cli" "\$(command -v fluttairbar-cli 2>/dev/null)" /opt/homebrew/bin/fluttairbar-cli /usr/local/bin/fluttairbar-cli; do [ -n "\$f" ] && [ -x "\$f" ] && exec "\$f" $args; done; ${otherwise ?? 'echo "error=fluttairbar-cli is not installed there"; exit 127'}';
 
-Future<String> _rsync(Reach reach, int limit, String from, String to) async {
-  final words = [
-    'rsync',
-    '-a',
-    '--partial',
-    '--exclude=.*.part',
-    '--stats',
-    if (limit > 0) '--bwlimit=$limit',
-    '-e',
-    reach.rsh,
-    from,
-    to,
+/// Copies [from] to [to], leaving out [leaveOut] (paths inside [from], as a
+/// pack's `excluded_paths` names them).
+Future<String> _rsync(
+  Reach reach,
+  int limit,
+  String from,
+  String to, {
+  Iterable<String> leaveOut = const [],
+}) async {
+  final patterns = [
+    for (final path in leaveOut)
+      if (path.isNotEmpty && !path.contains('\n') && !path.contains('\r'))
+        '/$path',
   ];
-  final result = await runShell(
-    words.map(shellQuote).join(' '),
-    timeout: _longTimeout,
-  );
+  final scratch = patterns.isEmpty
+      ? null
+      : Directory.systemTemp.createTempSync('fluttairbar-exclude-');
+  final ProcessResult result;
+  try {
+    if (scratch != null) {
+      File(
+        '${scratch.path}/list',
+      ).writeAsStringSync('${patterns.join('\n')}\n');
+    }
+    final words = [
+      'rsync',
+      '-a',
+      '--partial',
+      '--exclude=.*.part',
+      if (scratch != null) '--exclude-from=${scratch.path}/list',
+      '--stats',
+      if (limit > 0) '--bwlimit=$limit',
+      '-e',
+      reach.rsh,
+      from,
+      to,
+    ];
+    result = await runShell(
+      words.map(shellQuote).join(' '),
+      timeout: _longTimeout,
+    );
+  } finally {
+    scratch?.deleteSync(recursive: true);
+  }
   if (result.exitCode != 0) {
     final lines = '${result.stderr}'.trim().split('\n');
     throw ConversationsError(
@@ -451,9 +803,27 @@ Map<String, Object?> _run(
   'failing_since_unix_seconds': 0,
 };
 
+/// The exclude entries a pack report does not say it applied.
+List<String> _notApplied(List<String> exclude, Map<String, Object?> report) {
+  final applied = report['exclude'];
+  return [
+    for (final text in exclude)
+      if (applied is! List || !applied.contains(text)) text,
+  ];
+}
+
+List<String> _excludedPaths(Map<String, Object?>? report) => [
+  ...?(report?['excluded_paths'] as List?)?.whereType<String>(),
+];
+
 /// Both sides of every pair this device is in, packed and copied to each
 /// other. Never deletes anything. [reach] says how to get to a device
 /// (default: `ssh NAME`) and what packs there without this CLI.
+///
+/// The exclude list holds in both directions: the other side packs with it
+/// too (`--exclude`, added to its own), a side whose report does not say it
+/// applied it is not copied from, and each side's `excluded_paths` stay
+/// where they are.
 Future<Map<String, Object?>> copy({
   required Local local,
   required ConversationSettings settings,
@@ -469,6 +839,10 @@ Future<Map<String, Object?>> copy({
     );
   }
   final limit = settings.bwlimitKbps ?? bwlimit ?? 0;
+  final exclude = settings.exclude;
+  final withExclude = [
+    for (final text in exclude) ' --exclude ${shellQuote(text)}',
+  ].join();
   final runs = <Map<String, Object?>>[];
   for (final pair in pairs) {
     final peer = pair.$1 == me ? pair.$2 : pair.$1;
@@ -495,14 +869,18 @@ Future<Map<String, Object?>> copy({
     final via = reach[peer] ?? Reach(defaultRsh, peer);
     // Here first: a failure on the other side does not stop this one.
     Object? localError;
+    Map<String, Object?>? mine;
     try {
-      await pack(local, settings);
+      mine = await pack(local, settings);
     } on Object catch (error) {
       localError = error;
     }
     try {
       final remote = await via.run(
-        remoteCli('conversations pack --format json', otherwise: via.pack),
+        remoteCli(
+          'conversations pack --format json$withExclude',
+          otherwise: via.pack == null ? null : '${via.pack}$withExclude',
+        ),
       );
       final out = '${remote.stdout}';
       if (remote.exitCode == 255) {
@@ -513,13 +891,20 @@ Future<Map<String, Object?>> copy({
       }
       if (remote.exitCode == 64) {
         throw ConversationsError(
-          'packing on $peer: the fluttairbar-cli there is older than conversations; update it',
+          'packing on $peer: the fluttairbar-cli there is older than conversations${exclude.isEmpty ? '' : ' exclude'}; update it',
         );
       }
-      if (!_isReport(out)) {
+      final theirs = _report(out);
+      if (theirs == null) {
         final last = '$out${remote.stderr}'.trim().split('\n').last;
         throw ConversationsError(
           'packing on $peer: ${last.isEmpty ? 'no answer' : last.replaceFirst('error=', '')}',
+        );
+      }
+      final missing = _notApplied(exclude, theirs);
+      if (missing.isNotEmpty) {
+        throw ConversationsError(
+          'packing on $peer did not apply exclude ${missing.map((t) => '"$t"').join(', ')} (its packer is older than exclude): nothing copied from $peer; update it',
         );
       }
       final target = '${local.home}/$backupRoot/$peer';
@@ -534,6 +919,7 @@ Future<Map<String, Object?>> copy({
             limit,
             '${via.host}:$backupRoot/$peer/',
             '$target/',
+            leaveOut: _excludedPaths(theirs),
           ),
         ),
       );
@@ -565,6 +951,7 @@ Future<Map<String, Object?>> copy({
             limit,
             '${local.home}/$backupRoot/$me/',
             '${via.host}:$backupRoot/$me/',
+            leaveOut: _excludedPaths(mine),
           ),
         ),
       );
@@ -599,22 +986,26 @@ Future<Map<String, Object?>> copy({
   };
 }
 
-bool _isReport(String text) {
+/// The pack report in [text], or null when it is none.
+Map<String, Object?>? _report(String text) {
   try {
     final value = jsonDecode(text.trim());
-    return value is Map && value['schema_version'] != null;
+    return value is Map && value['schema_version'] != null
+        ? value.cast<String, Object?>()
+        : null;
   } on Object {
-    return false;
+    return null;
   }
 }
 
 // ---------------------------------------------------------------- status
 
 /// What is kept here: the originals, the slim copies per device, the pairs,
-/// the last copies, and each direction that keeps failing with for how many
+/// the last copies, each direction that keeps failing with for how many
 /// days (from the failures recorded run after run and from the age of the
 /// newest copy held here, which covers failures from before they were
-/// recorded).
+/// recorded), and per exclude entry how many projects and sessions it
+/// leaves out.
 Map<String, Object?> status(Local local, ConversationSettings settings) {
   var sessions = 0;
   var originalBytes = 0;
@@ -677,6 +1068,12 @@ Map<String, Object?> status(Local local, ConversationSettings settings) {
     ],
     'last_runs': runs,
     'behind': behind,
+    'exclude': settings.exclude,
+    'excluded': findLeftOut(
+      local,
+      settings.exclude,
+      '${local.home}/$backupRoot/${local.device}',
+    ).toJson(),
   };
 }
 
@@ -693,9 +1090,21 @@ ConversationSettings loadConversationSettings(SettingsStore store) {
 
 String _mb(int bytes) => '${(bytes / 1e6).toStringAsFixed(0)} MB';
 
+/// One line per exclude entry: what it leaves out, and why.
+List<String> _excludedLines(Map<String, Object?> report) => [
+  for (final entry
+      in (report['excluded'] as List? ?? const []).cast<Map<String, Object?>>())
+    '  left out: ${_count(entry['projects'], 'project')} (${_count(entry['sessions'], 'session')}) whose path contains "${entry['match']}" (exclude)',
+];
+
+String _count(Object? n, String what) => '$n $what${n == 1 ? '' : 's'}';
+
 String textPack(Map<String, Object?> report) {
   final lines = [
     '${report['device']}: ${report['sessions']} sessions, ${_mb(report['original_bytes'] as int)} → ${_mb(report['copy_bytes'] as int)} in ${report['folder']} (${report['packed']} packed now, ${report['unchanged']} unchanged, ${report['images_left_out']} screenshots left out now)',
+    ..._excludedLines(report),
+    if ((report['history_lines_left_out'] as int? ?? 0) > 0)
+      '  left out: ${_count(report['history_lines_left_out'], 'history line')} of those projects',
     for (final failure in report['failed'] as List) '  failed: $failure',
   ];
   return lines.join('\n');
@@ -711,6 +1120,7 @@ String textStatus(Map<String, Object?> report) {
   final copies = (report['copies'] as List).cast<Map<String, Object?>>();
   final lines = [
     'Conversation history on ${report['device']}: ${report['sessions']} sessions, ${_mb(report['original_bytes'] as int)} (Claude and Codex)',
+    ..._excludedLines(report),
     if (copies.isEmpty)
       '  no slim copies here yet: fluttairbar-cli conversations copy',
     for (final copy in copies)

@@ -83,6 +83,55 @@ Local tempLocal(Directory root) => Local(
   device: 'testbox',
 );
 
+const _workId = '11111111-2222-3333-4444-555555555555';
+const _ownId = '66666666-7777-8888-9999-000000000000';
+const _workSession =
+    '.codex/sessions/2026/11/01/rollout-2026-11-01T10-00-00-$_workId.jsonl';
+
+/// A made-up history in [home]: a Claude project and a Codex session of a
+/// work project and of an own one, and the history files naming both.
+void writeHistory(String home) {
+  void write(String path, String text) => File('$home/$path')
+    ..createSync(recursive: true)
+    ..writeAsStringSync(text);
+  write(
+    '.claude/projects/-home-u-Documents-acme-app/c1.jsonl',
+    '{"text":"work words"}\n',
+  );
+  write(
+    '.claude/projects/-home-u-Documents-acme-app/c1/subagents/a.jsonl',
+    '{"text":"work words of a subagent"}\n',
+  );
+  write('.claude/projects/-home-u-own/c2.jsonl', '{"text":"own words"}\n');
+  write(
+    '.claude/history.jsonl',
+    '{"display":"work prompt","project":"/home/u/Documents/acme-app"}\n'
+        '{"display":"own prompt","project":"/home/u/own"}\n',
+  );
+  write(
+    _workSession,
+    '{"type":"session_meta","payload":{"id":"$_workId","instructions":"say \\"cwd\\":\\"/elsewhere\\"","cwd":"/home/u/Documents/acme-app"}}\n'
+    '{"type":"message","text":"work words"}\n',
+  );
+  write(
+    '.codex/sessions/2026/11/01/rollout-2026-11-01T11-00-00-$_ownId.jsonl',
+    '{"type":"session_meta","payload":{"id":"$_ownId","cwd":"/home/u/own"}}\n',
+  );
+  write(
+    '.codex/history.jsonl',
+    '{"session_id":"$_workId","ts":1,"text":"work prompt"}\n'
+        '{"session_id":"$_ownId","ts":2,"text":"own prompt"}\n',
+  );
+  write(
+    '.codex/session_index.jsonl',
+    '{"id":"$_workId","thread_name":"work thread"}\n'
+        '{"id":"$_ownId","thread_name":"own thread"}\n',
+  );
+}
+
+String gunzipped(String path) =>
+    utf8.decode(gzip.decode(File(path).readAsBytesSync()));
+
 void writeSkill(String folder, String name, {String? description}) {
   File('$folder/$name/SKILL.md')
     ..createSync(recursive: true)
@@ -268,10 +317,8 @@ reads = ["~/.claude/skills"]
       }
     });
 
-    test(
-      'a settings file reads the same, and writes back',
-      () {
-        const text = r'''
+    test('a settings file reads the same, and writes back', () {
+      const text = r'''
 # Collections of agent skills (folders of SKILL.md folders), home-relative so
 # the same list holds on every device. `fluttairbar-cli skills`.
 collections = ["~/Documents/github/team/skills", "~/Documents/github/myskills"]
@@ -286,19 +333,18 @@ name = "X agent"
 dir = "~/.x/skills"
 loaded = 'Base directory for this skill: [^"\\]*'
 ''';
-        final settings = SkillSettings.parse(text);
-        expect(settings.collections, hasLength(2));
-        expect(settings.instructions, endsWith('AGENTS.md'));
-        expect(settings.off['pi'], ['safe-yeet']);
-        expect(
-          settings.agents.single.loaded,
-          r'Base directory for this skill: [^"\\]*',
-        );
-        final again = SkillSettings.parse(settings.toToml());
-        expect(again.toToml(), settings.toToml());
-        expect(again.agents.single.loaded, settings.agents.single.loaded);
-      },
-    );
+      final settings = SkillSettings.parse(text);
+      expect(settings.collections, hasLength(2));
+      expect(settings.instructions, endsWith('AGENTS.md'));
+      expect(settings.off['pi'], ['safe-yeet']);
+      expect(
+        settings.agents.single.loaded,
+        r'Base directory for this skill: [^"\\]*',
+      );
+      final again = SkillSettings.parse(settings.toToml());
+      expect(again.toToml(), settings.toToml());
+      expect(again.agents.single.loaded, settings.agents.single.loaded);
+    });
 
     test('broken settings are refused with the line', () {
       expect(
@@ -1262,5 +1308,281 @@ command = "sh {dir}/note.sh"
         );
       },
     );
+
+    group('exclude', () {
+      late Directory root;
+      late Local local;
+      late String folder;
+      setUp(() {
+        root = Directory.systemTemp.createTempSync('fab-exclude-');
+        local = tempLocal(root);
+        folder = '${root.path}/Backups/conversations/testbox';
+        writeHistory(root.path);
+      });
+      tearDown(() => root.deleteSync(recursive: true));
+
+      test('the settings and --exclude name parts of a path', () {
+        final settings = ConversationSettings.parse(
+          'exclude = ["/Documents/acme", "acme-intern", "/Documents/acme"]\n',
+        );
+        expect(settings.exclude, ['/Documents/acme', 'acme-intern']);
+        expect(ConversationSettings().exclude, isEmpty);
+        expect(settings.excluding(['x1', 'acme-intern']).exclude, [
+          '/Documents/acme',
+          'acme-intern',
+          'x1',
+        ]);
+        // `/` alone would leave out everything: refused.
+        expect(
+          () => ConversationSettings.parse('exclude = ["/"]\n'),
+          throwsA(isA<TomlError>()),
+        );
+        expect(parseAgentOptions(['pack', '--exclude', 'acme']).exclude, [
+          'acme',
+        ]);
+        expect(
+          () => parseAgentOptions(['pack', '--exclude', '//']),
+          throwsA(isA<CliFailure>().having((f) => f.exit, 'exit', 64)),
+        );
+      });
+
+      test('a Claude project is never packed, nor its history lines', () async {
+        final report = await pack(
+          local,
+          ConversationSettings.parse('exclude = ["/Documents/acme"]\n'),
+        );
+        expect(
+          Directory(
+            '$folder/claude/projects/-home-u-Documents-acme-app',
+          ).existsSync(),
+          isFalse,
+        );
+        expect(
+          File('$folder/claude/projects/-home-u-own/c2.jsonl.gz').existsSync(),
+          isTrue,
+        );
+        final history = gunzipped('$folder/claude/history.jsonl.gz');
+        expect(history, contains('own prompt'));
+        expect(history, isNot(contains('work prompt')));
+        expect(
+          report['excluded_paths'],
+          contains('claude/projects/-home-u-Documents-acme-app/'),
+        );
+        expect(report['exclude'], ['/Documents/acme']);
+      });
+
+      test('a Codex session is left out by the folder it ran in', () async {
+        final settings = ConversationSettings.parse('exclude = ["acme-app"]\n');
+        final report = await pack(local, settings);
+        final copy = '$folder/codex/sessions/2026/11/01';
+        expect(
+          File(
+            '$copy/rollout-2026-11-01T10-00-00-$_workId.jsonl.gz',
+          ).existsSync(),
+          isFalse,
+        );
+        expect(
+          File(
+            '$copy/rollout-2026-11-01T11-00-00-$_ownId.jsonl.gz',
+          ).existsSync(),
+          isTrue,
+        );
+        for (final name in ['history', 'session_index']) {
+          final text = gunzipped('$folder/codex/$name.jsonl.gz');
+          expect(text, contains('own'));
+          expect(text, isNot(contains('work')));
+        }
+        // Claude's history line, Codex's history line and its index line.
+        expect(report['history_lines_left_out'], 3);
+        expect(
+          sessionCwd('${root.path}/$_workSession'),
+          '/home/u/Documents/acme-app',
+        );
+      });
+
+      test(
+        'a copy made before stays, is not updated, and is named to stay',
+        () async {
+          await pack(local, ConversationSettings());
+          final copy = '$folder/${_workSession.substring(1)}.gz';
+          expect(File(copy).existsSync(), isTrue);
+          File(
+            '${root.path}/$_workSession',
+          ).writeAsStringSync('{"text":"later work"}\n', mode: FileMode.append);
+          final settings = ConversationSettings.parse(
+            'exclude = ["/Documents/acme"]\n',
+          );
+          final report = await pack(local, settings);
+          expect(File(copy).existsSync(), isTrue);
+          expect(gunzipped(copy), isNot(contains('later work')));
+          final named = copy.substring(folder.length + 1);
+          expect(report['excluded_paths'], contains(named));
+          // Its session gone here, the copy itself says where it ran.
+          File('${root.path}/$_workSession').deleteSync();
+          expect(
+            (await pack(local, settings))['excluded_paths'],
+            contains(named),
+          );
+        },
+      );
+
+      test('a Codex session names its folder, also in older forms', () {
+        String? cwdOf(String text, {bool gzipped = false}) {
+          final file = File(
+            '${root.path}/cwd-test.jsonl${gzipped ? '.gz' : ''}',
+          );
+          if (gzipped) {
+            file.writeAsBytesSync(gzip.encode(utf8.encode(text)));
+          } else {
+            file.writeAsStringSync(text);
+          }
+          return sessionCwd(file.path);
+        }
+
+        // Before session_meta named it: the environment context.
+        expect(
+          cwdOf(
+            '{"type":"message","content":[{"text":"<environment_context>\\n  <cwd>/home/u/old\\\\acme</cwd>\\n</environment_context>"}]}\n',
+          ),
+          r'/home/u/old\acme',
+        );
+        // The key cut by the end of the first read, and through gzip.
+        const head = '{"payload":{"instructions":"';
+        final far =
+            '$head${'x' * (65536 - 3 - head.length - 2)}","cwd":"/home/u/far"}}\n';
+        expect(cwdOf(far), '/home/u/far');
+        expect(cwdOf(far, gzipped: true), '/home/u/far');
+        expect(cwdOf('{"type":"message","text":"no folder"}\n'), isNull);
+      });
+
+      test('nothing is left out with an empty list', () async {
+        final report = await pack(local, ConversationSettings());
+        expect(report['exclude'], isEmpty);
+        expect(report['excluded'], isEmpty);
+        expect(report['excluded_paths'], isEmpty);
+        expect(report['history_lines_left_out'], 0);
+        expect(
+          File(
+            '$folder/claude/projects/-home-u-Documents-acme-app/c1.jsonl.gz',
+          ).existsSync(),
+          isTrue,
+        );
+        expect(
+          gunzipped('$folder/codex/history.jsonl.gz'),
+          contains('work prompt'),
+        );
+        expect(status(local, ConversationSettings())['excluded'], isEmpty);
+      });
+
+      test('status counts the projects each entry leaves out, and why', () {
+        final report = status(
+          local,
+          ConversationSettings.parse(
+            'exclude = ["/documents/ACME", "nothing-here"]\n',
+          ),
+        );
+        // The Claude project and the Codex session are one project: two
+        // Claude transcripts and one Codex session. Case does not matter.
+        expect(report['excluded'], [
+          {'match': '/documents/ACME', 'projects': 1, 'sessions': 3},
+          {'match': 'nothing-here', 'projects': 0, 'sessions': 0},
+        ]);
+        expect(report['exclude'], ['/documents/ACME', 'nothing-here']);
+        // Still every session on this device: the originals are untouched.
+        expect(report['sessions'], 8);
+        expect(
+          textStatus(report),
+          contains(
+            'left out: 1 project (3 sessions) whose path contains "/documents/ACME"',
+          ),
+        );
+      });
+
+      test('a copy leaves excluded projects out in both directions', () async {
+        // Packed here before the exclude existed: stays, but is not sent.
+        await pack(local, ConversationSettings());
+        final peer = '${root.path}/peer';
+        File('$peer/bin/new-packer')
+          ..createSync(recursive: true)
+          ..writeAsStringSync(
+            '#!/bin/sh\nset -e\nprintf "%s\\n" "\$@" > "\$HOME/args"\n'
+            'for p in -x-acme -x-own; do\n'
+            '  mkdir -p "\$HOME/Backups/conversations/other/claude/projects/\$p"\n'
+            '  echo "{}" | gzip > "\$HOME/Backups/conversations/other/claude/projects/\$p/s.jsonl.gz"\n'
+            'done\n'
+            'echo \'{"schema_version":"x","exclude":["acme"],"excluded_paths":["claude/projects/-x-acme/"]}\'\n',
+          );
+        File('$peer/bin/old-packer').writeAsStringSync(
+          '#!/bin/sh\necho \'{"schema_version":"x","packed":1}\'\n',
+        );
+        File('$peer/bin/fake-rsh').writeAsStringSync(
+          '#!/bin/sh\nshift\ncd "$peer" && HOME="$peer" PATH=/usr/bin:/bin exec sh -c "\$*"\n',
+        );
+        await Process.run('chmod', [
+          '+x',
+          '$peer/bin/new-packer',
+          '$peer/bin/old-packer',
+          '$peer/bin/fake-rsh',
+        ]);
+        final settings = ConversationSettings.parse(
+          'exclude = ["acme"]\n\n[[pair]]\ndevices = ["testbox", "other"]\n',
+        );
+        Future<List<String>> run(String packer) async {
+          final report = await copy(
+            local: local,
+            settings: settings,
+            execute: true,
+            reach: {
+              'other': Reach(
+                '$peer/bin/fake-rsh',
+                'other',
+                pack: '"\$HOME/bin/$packer"',
+              ),
+            },
+          );
+          return [
+            for (final r in (report['runs'] as List).cast<Map>())
+              '${r['from']}>${r['to']} ${r['result']} ${r['detail']}',
+          ];
+        }
+
+        final runs = await run('new-packer');
+        expect(runs.map((r) => r.split(' ').take(2).join(' ')), [
+          'other>testbox ok',
+          'testbox>other ok',
+        ]);
+        // The other side was asked to leave the same projects out.
+        expect(
+          File('$peer/args').readAsLinesSync(),
+          containsAllInOrder(['--exclude', 'acme']),
+        );
+        final here =
+            '${local.home}/Backups/conversations/other/claude/projects';
+        expect(Directory('$here/-x-own').existsSync(), isTrue);
+        expect(Directory('$here/-x-acme').existsSync(), isFalse);
+        final there = '$peer/Backups/conversations/testbox';
+        expect(
+          File('$there/claude/projects/-home-u-own/c2.jsonl.gz').existsSync(),
+          isTrue,
+        );
+        expect(
+          Directory(
+            '$there/claude/projects/-home-u-Documents-acme-app',
+          ).existsSync(),
+          isFalse,
+        );
+        expect(
+          Directory(
+            '$there/codex/sessions/2026/11/01',
+          ).listSync().map((e) => e.path.split('/').last),
+          ['rollout-2026-11-01T11-00-00-$_ownId.jsonl.gz'],
+        );
+        // A packer that does not say it applied the list is not copied from.
+        final refused = await run('old-packer');
+        expect(refused.first, startsWith('other>testbox failed'));
+        expect(refused.first, contains('did not apply exclude "acme"'));
+        expect(refused.last, startsWith('testbox>other ok'));
+      });
+    });
   });
 }
