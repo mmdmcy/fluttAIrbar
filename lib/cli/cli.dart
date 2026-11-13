@@ -24,7 +24,7 @@ Usage:
   fluttairbar-cli hooks remove HOOK... [-y|-n]
   fluttairbar-cli hooks add ~/PATH [-y|-n]
   fluttairbar-cli quiz [--agent ID] [--json]
-  fluttairbar-cli conversations [pack | copy [-n]] [--json]
+  fluttairbar-cli conversations [pack | copy [-n]] [--exclude TEXT]... [--json]
   fluttairbar-cli version
   fluttairbar-cli --help
 
@@ -75,7 +75,13 @@ Commands:
              never --delete (--rsh NAME=COMMAND and --host NAME=USER@HOST
              say how to reach a device, --pack NAME=COMMAND what packs
              there when fluttairbar-cli is not installed on it, --bwlimit
-             KBPS caps it when the settings set none).
+             KBPS caps it when the settings set none). exclude = ["TEXT"]
+             in the settings (or --exclude TEXT) leaves out every project
+             whose path contains TEXT: never packed, never copied in either
+             direction, and its lines left out of the slim history files;
+             status says how many projects each entry leaves out. Excluding
+             only stops copying and deletes nothing: copies of its sessions
+             made before stay where they are.
   version    Print the version.
 
 JSON: --json, --format json or -o json. A change asks first: -y approves it,

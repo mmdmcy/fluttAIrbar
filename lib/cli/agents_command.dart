@@ -26,6 +26,7 @@ class AgentOptions {
   final rsh = <String, String>{};
   final hosts = <String, String>{};
   final pack = <String, String>{};
+  final exclude = <String>[];
   final words = <String>[];
 }
 
@@ -111,6 +112,12 @@ AgentOptions parseAgentOptions(List<String> args) {
           );
         }
         opts.pack[name] = command;
+      case '--exclude':
+        final text = value();
+        if (!conversations.excludeText(text)) {
+          throw CliFailure(64, conversations.excludeRefused(text));
+        }
+        opts.exclude.add(text);
       default:
         if (arg.startsWith('-') && arg.length > 1) {
           throw CliFailure(64, 'unknown option $arg');
@@ -547,10 +554,15 @@ Future<int> runConversationsCommand(
     given: opts.settings,
     name: 'conversations.toml',
   );
-  final settings = conversations.loadConversationSettings(store);
+  final settings = conversations
+      .loadConversationSettings(store)
+      .excluding(opts.exclude);
   final command = opts.words.isEmpty ? 'status' : opts.words.first;
   if (opts.words.length > 1) {
-    throw CliFailure(64, 'usage: fluttairbar-cli conversations [pack|copy]');
+    throw CliFailure(
+      64,
+      'usage: fluttairbar-cli conversations [pack|copy] [--exclude TEXT]...',
+    );
   }
   switch (command) {
     case 'status':

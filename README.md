@@ -351,7 +351,7 @@ fluttairbar-cli hooks install (HOOK... | --all) [--replace] [-y|-n]
 fluttairbar-cli hooks remove HOOK... [-y|-n]
 fluttairbar-cli hooks add ~/PATH [-y|-n]
 fluttairbar-cli quiz [--agent ID] [--json]
-fluttairbar-cli conversations [pack | copy [-n]] [--json]
+fluttairbar-cli conversations [pack | copy [-n]] [--exclude TEXT]... [--json]
 ```
 
 A change asks first: `-y` approves it, `-n` shows what it would do and
@@ -434,8 +434,9 @@ knows before opening a project counts. It uses the agents' own
 subscriptions: run it when you mean it. Exit `1` when an answer was not as
 expected.
 
-**Conversations.** History is kept, always: nothing deletes, prunes or leaves
-out a session, and a copy never touches its source. `pack` writes a slim copy
+**Conversations.** History is kept, always: nothing deletes or prunes a
+session, only the projects you `exclude` are left out, and a copy never
+touches its source. `pack` writes a slim copy
 of this device's history (Claude Code `~/.claude/projects` and
 `history.jsonl`; Codex `sessions`, `archived_sessions`, `history.jsonl`,
 `session_index.jsonl`) to `~/Backups/conversations/DEVICE/`: every word kept,
@@ -446,6 +447,7 @@ other, never with `--delete`; the other device needs `fluttairbar-cli` too.
 
 ```toml
 bwlimit_kbps = 1000      # upload cap per copy in KB/s (0 = none)
+exclude = ["/Documents/acme", "acme-intern"]   # projects never packed or copied
 
 [[pair]]
 devices = ["laptop", "desktop"]
@@ -467,6 +469,26 @@ a `schema_version`. The status
 each direction and, in `behind`, each direction that keeps failing with for
 how many days. To copy every night, run `fluttairbar-cli conversations copy`
 from a systemd user timer or cron.
+
+`exclude` (or `--exclude TEXT`, added to the settings' list) keeps projects
+off the other device, for example an employer's: a project whose path
+contains one of its entries is never packed and never copied, in either
+direction. Claude Code's project folder name is its path; a Codex session
+names the folder it ran in (`cwd`, or `<cwd>` in older sessions), and one
+that names none is copied. Paths are compared the way Claude Code spells
+them in folder names (`/`, `.`, `_` and `-` are one character to it) and
+without regard to case, so an entry leaves out at least what it names. The
+lines of those projects are left out of the slim `history.jsonl` and
+`session_index.jsonl` (written again at each pack). `copy` passes the list to
+the other side's pack, and refuses to copy from a side whose report does not
+say it applied it (an older fluttairbar-cli, or a `--pack` command that does
+not take `--exclude TEXT` and report `exclude`). Excluding only stops
+copying and deletes nothing: copies of those sessions made before stay where
+they are, on both devices, and are not sent on (the pack names them in
+`excluded_paths`). The status and the pack report, per entry, how many
+projects and sessions it leaves out (`excluded`: `match`, `projects`,
+`sessions`); an entry at 0 names nothing here. An `[[extra]]` folder is
+copied as it is.
 
 ## Privacy
 
