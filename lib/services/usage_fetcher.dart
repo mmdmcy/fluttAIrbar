@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:http/http.dart' as http;
+import '../net/http.dart' as http;
 
 import '../api/chatgpt_wham.dart';
 import '../api/claude_usage.dart';

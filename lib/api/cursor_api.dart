@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:http/http.dart' as http;
+import '../net/http.dart' as http;
 
 import '../auth/cursor_auth.dart';
 import '../auth/opencode_auth.dart';

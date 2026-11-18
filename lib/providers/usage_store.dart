@@ -1,5 +1,5 @@
 import 'package:flutter/foundation.dart';
-import 'package:http/http.dart' as http;
+import '../net/http.dart' as http;
 
 import '../api/chatgpt_wham.dart';
 import '../auth/claude_auth.dart';

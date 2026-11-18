@@ -2,8 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:http/http.dart' as http;
-import 'package:http/testing.dart';
+import 'package:fluttairbar/net/http.dart' as http;
+import 'package:fluttairbar/net/testing.dart';
 import 'package:path/path.dart' as p;
 
 import 'package:fluttairbar/models/harness.dart';

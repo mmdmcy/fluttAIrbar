@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:http/http.dart' as http;
+import '../net/http.dart' as http;
 import 'package:path/path.dart' as p;
 
 import 'opencode_auth.dart';

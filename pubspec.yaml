@@ -16,7 +16,6 @@ dependencies:
   flutter:
     sdk: flutter
 
-  http: ^1.6.0
   path: ^1.9.1
   path_provider: ^2.1.6
   tray_manager: ^0.5.3

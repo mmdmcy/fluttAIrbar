@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:http/http.dart' as http;
+import '../net/http.dart' as http;
 
 import '../models/usage_snapshot.dart';
 import '../services/usage_fetcher.dart';

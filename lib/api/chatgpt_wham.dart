@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:math';
 
-import 'package:http/http.dart' as http;
+import '../net/http.dart' as http;
 
 import '../auth/opencode_auth.dart';
 import '../models/usage_snapshot.dart';
