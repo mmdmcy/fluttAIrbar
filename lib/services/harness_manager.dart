@@ -613,31 +613,42 @@ class HarnessManager {
     }
 
     final npmName = Platform.isWindows ? 'npm.cmd' : 'npm';
-    // Version managers such as nvm install both the CLI and npm directly in
-    // the same `bin` directory. Prefer that sibling npm so discovery and
-    // updates stay attached to the Node installation that owns the CLI.
-    final siblingNpm = p.join(p.dirname(resolvedExecutable), npmName);
-    if (File(siblingNpm).existsSync()) {
-      final prefix = p.dirname(p.dirname(siblingNpm));
-      return _NpmInstallation(executable: siblingNpm, prefix: prefix);
-    }
+    // Keep the path returned by `which` when possible. macOS commonly exposes
+    // /var as a symlink to /private/var; canonicalizing that path too early
+    // makes fake/test paths and the command recorded by the caller diverge.
+    // If the lexical path is itself a shim, fall back to its resolved target
+    // so version managers still find the npm installation that owns the CLI.
+    final candidates = <String>[executable];
+    if (resolvedExecutable != executable) candidates.add(resolvedExecutable);
 
-    var directory = p.dirname(resolvedExecutable);
-    while (true) {
-      if (p.basename(directory) == 'node_modules') {
-        final nodeModulesParent = p.dirname(directory);
-        final prefix = p.basename(nodeModulesParent) == 'lib'
-            ? p.dirname(nodeModulesParent)
-            : nodeModulesParent;
-        final candidate = p.join(prefix, 'bin', npmName);
-        if (File(candidate).existsSync()) {
-          return _NpmInstallation(executable: candidate, prefix: prefix);
-        }
+    for (final candidateExecutable in candidates) {
+      // Version managers such as nvm install both the CLI and npm directly in
+      // the same `bin` directory. Prefer that sibling npm so discovery and
+      // updates stay attached to the Node installation that owns the CLI.
+      final siblingNpm = p.join(p.dirname(candidateExecutable), npmName);
+      if (File(siblingNpm).existsSync()) {
+        final prefix = p.dirname(p.dirname(siblingNpm));
+        return _NpmInstallation(executable: siblingNpm, prefix: prefix);
       }
-      final parent = p.dirname(directory);
-      if (parent == directory) return null;
-      directory = parent;
+
+      var directory = p.dirname(candidateExecutable);
+      while (true) {
+        if (p.basename(directory) == 'node_modules') {
+          final nodeModulesParent = p.dirname(directory);
+          final prefix = p.basename(nodeModulesParent) == 'lib'
+              ? p.dirname(nodeModulesParent)
+              : nodeModulesParent;
+          final candidate = p.join(prefix, 'bin', npmName);
+          if (File(candidate).existsSync()) {
+            return _NpmInstallation(executable: candidate, prefix: prefix);
+          }
+        }
+        final parent = p.dirname(directory);
+        if (parent == directory) break;
+        directory = parent;
+      }
     }
+    return null;
   }
 
   String? _npmPrefixFor(String executable) {

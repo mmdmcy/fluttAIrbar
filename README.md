@@ -88,6 +88,28 @@ flutter run -d linux
 # or: flutter build linux --release
 ```
 
+On macOS, install the Xcode command-line components once, then use the native
+Apple Silicon desktop target:
+
+```bash
+sudo xcodebuild -license accept
+sudo xcodebuild -runFirstLaunch
+
+flutter config --enable-macos-desktop
+flutter pub get
+flutter run -d macos
+# or: flutter build macos --release
+```
+
+The release bundle is written to
+`build/macos/Build/Products/Release/fluttairbar.app`. To install it locally:
+
+```bash
+ditto build/macos/Build/Products/Release/fluttairbar.app \
+  /Applications/fluttAIrbar.app
+open /Applications/fluttAIrbar.app
+```
+
 Install the complete release bundle in a stable location before configuring it
 as a login application. Development builds must not be registered for startup.
 On Linux, `tool/install_linux.sh` does all of the following and also installs
@@ -500,13 +522,18 @@ copied as it is.
 - Codex shortcut installation is opt-in and only removes files or PATH blocks it owns.
 - Updates run fixed, reviewed argument lists; GUI early updates require explicit confirmation.
 
+The macOS target is intentionally unsandboxed because the app must read and
+manage user-level CLI credentials, configuration, skills, and shortcut files.
+This is suitable for a personal/local install; App Store distribution would
+require a different security-scoped access design.
+
 ## Platforms
 
 | OS | Status |
 |----|--------|
 | Linux | Primary (tested) |
 | Windows | Same codebase (`flutter run -d windows`) |
-| macOS | Same codebase (`flutter run -d macos`) |
+| macOS | Native arm64 tested (`flutter run -d macos`) |
 
 ## Future
 

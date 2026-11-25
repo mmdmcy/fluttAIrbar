@@ -188,6 +188,42 @@ void main() {
     }
   });
 
+  test('discovery recognizes compact disabled MCP status', () async {
+    final directory = Directory.systemTemp.createTempSync('unused-');
+    try {
+      final runner = _FakeCommandRunner()
+        ..responses['codex plugin list --json'] = const CommandResult(
+          exitCode: 0,
+          stdout: '{"installed":[],"available":[]}',
+          stderr: '',
+        )
+        ..responses['codex mcp list'] = const CommandResult(
+          exitCode: 0,
+          stdout: 'stripe\n',
+          stderr: '',
+        )
+        ..responses['codex mcp get stripe'] = const CommandResult(
+          exitCode: 0,
+          stdout: 'stripe (disabled)\n',
+          stderr: '',
+        );
+      final manager = CodexCapabilityManager(
+        runner: runner,
+        environment: _environment(directory.path),
+      );
+
+      final snapshot = await manager.discover();
+      final stripe = snapshot.component('stripe-mcp');
+
+      expect(stripe.installed, isTrue);
+      expect(stripe.stateKnown, isTrue);
+      expect(stripe.enabled, isFalse);
+      expect(stripe.toggleable, isTrue);
+    } finally {
+      directory.deleteSync(recursive: true);
+    }
+  });
+
   test(
     'discovery maps standalone skill state and implicit invocation policy',
     () async {

@@ -731,7 +731,16 @@ class CodexCapabilityManager {
       r'^\s*enabled:\s*(true|false)\s*$',
       multiLine: true,
     ).firstMatch(result.stdout);
-    if (enabledMatch == null) {
+    final disabledMatch = RegExp(
+      r'^\s*([A-Za-z0-9_-]+)\s+\(disabled\)\s*$',
+      multiLine: true,
+    ).firstMatch(result.stdout);
+    final enabled = enabledMatch != null
+        ? enabledMatch.group(1) == 'true'
+        : disabledMatch?.group(1) == definition.mcpServerName
+        ? false
+        : null;
+    if (enabled == null) {
       return CodexCapabilityComponentStatus(
         definition: definition,
         installed: true,
@@ -744,7 +753,7 @@ class CodexCapabilityManager {
     return CodexCapabilityComponentStatus(
       definition: definition,
       installed: true,
-      enabled: enabledMatch.group(1) == 'true',
+      enabled: enabled,
       stateKnown: true,
       observedId: definition.mcpServerName,
     );
